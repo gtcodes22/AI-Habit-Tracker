@@ -11,6 +11,8 @@
 | `parseJSON(text)` | Strips markdown code fences (```` ```json ````) before `JSON.parse`, since the model often wraps JSON in them. |
 | `chatCompletion(system, user, temperature?)` | Calls the model with the system prompt in config and returns trimmed text. With no client, returns a placeholder saying AI features are disabled. |
 
+> **Design note:** keep every Gemini-specific detail (SDK import, client creation, model name, response parsing) inside `aiService.js`, and have the controllers call only `chatCompletion(...)`. That single seam is what would make it easy to add other providers (Claude, local models via Ollama) later. See [Ideas & Future Development](ideas.md).
+
 ## The five features
 
 Each is a controller function in `aiController.js` that **builds context from MongoDB**, sends it with a tuned system prompt, saves an `AIInsight`, and returns `{ content }` (or `{ suggestions }`).

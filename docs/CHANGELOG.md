@@ -8,6 +8,7 @@ All notable changes to this project are recorded here. Format loosely follows [K
 
 #### Added
 - `docs/` folder with project documentation: overview, architecture, API reference, data models, AI features, setup guide, frontend integration, development roadmap and this changelog.
+- `docs/ideas.md`: a backlog for future ideas outside the current scope, with a template and status values. Seeded with support for multiple AI providers (Claude, Ollama) and the tutorial's suggested extensions (push notifications, social sharing, custom icons, mobile app).
 - `backend/package.json` configured for the project:
   - `"type": "module"`, `main: server.js`.
   - Scripts: `start`, `dev` (nodemon), `seed`.

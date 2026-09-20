@@ -84,4 +84,4 @@ Follow this order. Each step should be tested before the next begins.
 
 ## Out of scope (for now)
 
-Push notifications, social streak sharing, custom icon uploads, a React Native mobile app.
+Push notifications, social streak sharing, custom icon uploads, a React Native mobile app, and support for AI providers other than Gemini (Claude, Ollama). These are tracked, with notes, in [Ideas & Future Development](ideas.md). New ideas go there, not here.

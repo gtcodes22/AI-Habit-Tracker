@@ -14,6 +14,7 @@ Documentation for the AI Habit Tracker, a full-stack MERN app (MongoDB, Express,
 | [Setup Guide](setup-guide.md) | Environment variables, MongoDB Atlas, Gemini key, running locally |
 | [Frontend Integration](frontend-integration.md) | Swapping the mock API for the real backend; contract checklist |
 | [Development Roadmap](development-roadmap.md) | Build order, current status, open questions |
+| [Ideas & Future Development](ideas.md) | Backlog of ideas outside the current scope (multi-provider AI, notifications, and more). Add new ideas here. |
 | [Changelog](CHANGELOG.md) | History of changes to the project |
 
 ## Source of truth
