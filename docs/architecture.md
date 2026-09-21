@@ -116,6 +116,6 @@ Weeks start on **Monday** (`weekStartsOn: 1` in date-fns).
 
 ## Deployment notes
 
-- **Backend:** Render, Railway or Fly.io. Set `MONGODB_URI`, `JWT_SECRET`, `GEMINI_API_KEY`, `CLIENT_URL`.
+- **Backend:** Render, Railway or Fly.io. Set `MONGO_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `GEMINI_API_KEY`, `CLIENT_URL`.
 - **Frontend:** Vercel or Netlify. Set `VITE_API_URL` to the deployed backend's `/api` URL.
 - The frontend's `.env` value is baked in at build time, so changing it requires a rebuild.

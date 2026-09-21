@@ -75,7 +75,7 @@ Follow this order. Each step should be tested before the next begins.
 
 | Question | Current default |
 |---|---|
-| Database variable name (`URI` vs `MONGODB_URI`) | `MONGODB_URI` |
+| Database variable name | **Resolved:** `MONGO_URI` (as implemented in `config/db.js`) |
 | Backend port | 8000 (frontend `.env`, `.env.example` and the axios TODO all agree) |
 | Local MongoDB or Atlas | Atlas (as in the tutorial) |
 | Implement `/habits/reorder`? | Yes for parity with the tutorial, though the frontend doesn't call it yet |

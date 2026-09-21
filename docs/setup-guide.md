@@ -51,8 +51,9 @@ Create `backend/.env` (git-ignored):
 
 ```
 PORT=8000
-MONGODB_URI=<your Atlas connection string>
+MONGO_URI=<your Atlas connection string>
 JWT_SECRET=<64-byte hex string>
+JWT_EXPIRES_IN=30d
 GEMINI_API_KEY=<your Google AI Studio key>
 GEMINI_MODEL=gemini-2.5-flash
 CLIENT_URL=http://localhost:5173
@@ -61,13 +62,14 @@ CLIENT_URL=http://localhost:5173
 | Variable | Purpose |
 |---|---|
 | `PORT` | Port the API listens on (8000) |
-| `MONGODB_URI` | Atlas connection string |
+| `MONGO_URI` | Atlas connection string (read by `config/db.js`) |
 | `JWT_SECRET` | Signs auth tokens. Use a long random value. |
+| `JWT_EXPIRES_IN` | Token lifetime, e.g. `30d`. The auth controller should read this instead of hard-coding 30 days. |
 | `GEMINI_API_KEY` | Enables AI features. Optional: without it, AI endpoints return a placeholder. |
 | `GEMINI_MODEL` | Gemini model name |
 | `CLIENT_URL` | Allowed CORS origin(s); comma-separated for several |
 
-> The tutorial uses `URI` as the database variable name in its narration; the exact name is a choice. `MONGODB_URI` is used here. Whatever name you pick, `config/db.js` must read the same one.
+> The variable name is `MONGO_URI`, matching `config/db.js`. `.env` must live in the **`backend/` root** (next to `server.js`), not in a subfolder: `dotenv` loads `.env` from the directory the server is started in, so a misplaced file is silently ignored.
 
 ### Generate a JWT secret
 
@@ -82,7 +84,7 @@ node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 3. Create a **database user** (username and password).
 4. Under **Network Access**, allow your IP address. Connections fail otherwise.
 5. Choose **Connect → Drivers** and copy the connection string.
-6. Put your database user's password into the string and set it as `MONGODB_URI`. If the password contains special characters, URL-encode them.
+6. Put your database user's password into the string and set it as `MONGO_URI`. If the password contains special characters, URL-encode them.
 
 ## 4. Gemini API key
 
@@ -109,7 +111,9 @@ For API testing, use Thunder Client (VS Code), Postman or curl. See [API Referen
 
 | Symptom | Likely cause |
 |---|---|
-| Server exits immediately on start | Database connection failed: check `MONGODB_URI`, Atlas IP allow-list, DB user password |
+| Server exits immediately on start | Database connection failed: check `MONGO_URI`, Atlas IP allow-list, DB user password |
+| `ERR_MODULE_NOT_FOUND` on start | An `import` path doesn't match a real filename (for example `errorMiddleware.js` vs `errorHandler.js`). ES modules require the exact name and the `.js` extension. |
+| "MONGO_URI is not defined" | `.env` is missing, misplaced (must be in `backend/`, not `utils/`), or the variable is misspelled |
 | Frontend still shows mock data | `axios.js` not yet swapped, or `.env` changed without restarting Vite |
 | Browser CORS error | `CLIENT_URL` doesn't include the frontend's origin |
 | Redirected to `/login` after switching to the real API | Expected once: the old mock token is invalid. Register a fresh account. |
