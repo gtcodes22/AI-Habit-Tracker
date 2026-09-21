@@ -4,6 +4,31 @@ All notable changes to this project are recorded here. Format loosely follows [K
 
 ## [Unreleased]
 
+### 2026-09-21
+
+#### Added
+- **Backend server foundation** (Phase 1): `server.js` (Express, CORS allow-list, JSON parsing, `GET /api/health`, connect-then-listen), `config/db.js`, `middleware/errorHandler.js`. Confirmed running against MongoDB Atlas.
+- **Authentication** (Phase 2):
+  - `models/User.js`: bcrypt pre-save hook (only when the password changes), `matchPassword()`, password stripped from JSON.
+  - `middleware/auth.js`: `protect` verifies the Bearer JWT and attaches `req.user`.
+  - `controllers/authController.js` and `routes/auth.js`: `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `PUT /api/auth/profile`.
+  - Token lifetime read from `JWT_EXPIRES_IN` (default `30d`).
+  - Input hardening beyond the tutorial: string-type checks to block NoSQL operator injection, email-format validation, case-insensitive duplicate detection.
+
+#### Fixed
+- `server.js` imported `./middleware/errorMiddleware.js`, but the file is `errorHandler.js`, causing `ERR_MODULE_NOT_FOUND`. Import corrected.
+- `.env` was in `backend/utils/` where `dotenv` never loads it. Moved to `backend/.env` (git-ignored).
+- `models/User.js`: a stray `next()` call inside the `async` pre-save hook (which declares no `next` parameter) threw `ReferenceError: next is not defined` after hashing, which would have made register fail with a 500. Removed; register, login and password hashing re-verified.
+- `middleware/errorHandler.js` ignored the status carried by the error, so malformed request bodies (invalid JSON) returned `500` instead of `400`. It now uses `err.status` / `err.statusCode` first. Unknown routes still return 404 and validation errors 400.
+- Not code bugs, but recorded in the setup guide's troubleshooting table: testing with an `https://` URL against the plain-HTTP dev server (`EPROTO WRONG_VERSION_NUMBER`), and invalid JSON in the API client body (missing commas between properties) surfacing as `Unexpected token '"' … is not valid JSON`.
+
+#### Changed
+- Docs now use `MONGO_URI` (as implemented) instead of `MONGODB_URI`, and document `JWT_EXPIRES_IN`.
+
+#### Verified
+- 20 endpoint checks against a live server and the Atlas database, all as expected: health; register validation (missing fields, short password, bad email, operator injection); successful register (201, no password in response, avatar set); duplicate email; login success, wrong password and unknown email (same 401 message), operator injection; `me` with no token, garbage token and valid token; profile update (avatar recomputed) and its validation; login still works after a profile update (password not re-hashed); unknown route returns 404.
+- The throwaway test user was deleted afterward; the `users` collection is empty.
+
 ### 2026-09-20
 
 #### Added

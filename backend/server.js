@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { connectDB } from "./config/db.js";
+import authRoutes from "./routes/auth.js";
 import { notFound, errorHandler } from "./middleware/errorHandler.js";
 
 const app = express();
@@ -40,6 +41,9 @@ app.get("/api/health", (req, res) => {
     res.json({ status: "ok", time: new Date().toISOString() });
 }
 );
+
+// API routes
+app.use("/api/auth", authRoutes);
 
 // Error handling
 app.use(notFound);

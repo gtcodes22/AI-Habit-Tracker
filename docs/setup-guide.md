@@ -114,6 +114,9 @@ For API testing, use Thunder Client (VS Code), Postman or curl. See [API Referen
 | Server exits immediately on start | Database connection failed: check `MONGO_URI`, Atlas IP allow-list, DB user password |
 | `ERR_MODULE_NOT_FOUND` on start | An `import` path doesn't match a real filename (for example `errorMiddleware.js` vs `errorHandler.js`). ES modules require the exact name and the `.js` extension. |
 | "MONGO_URI is not defined" | `.env` is missing, misplaced (must be in `backend/`, not `utils/`), or the variable is misspelled |
+| Client shows `EPROTO … WRONG_VERSION_NUMBER` | The request URL starts with `https://`. The local server speaks plain HTTP: use `http://localhost:8000/...`. |
+| `400` with `Unexpected token '"', ""{\r\n …" is not valid JSON` | The JSON body in your API client has a **syntax error**, most often **missing commas between properties** (every line except the last needs one). Thunder Client then sends the broken text as a quoted string. Fix the JSON so it is valid and starts with `{`. |
+| Other `400` with `Expected property name or '}' in JSON …` | Same cause: invalid JSON in the request body (missing or trailing commas, unquoted keys, single quotes) |
 | Frontend still shows mock data | `axios.js` not yet swapped, or `.env` changed without restarting Vite |
 | Browser CORS error | `CLIENT_URL` doesn't include the frontend's origin |
 | Redirected to `/login` after switching to the real API | Expected once: the old mock token is invalid. Register a fresh account. |

@@ -2,7 +2,7 @@
 
 Base URL (local): `http://localhost:8000/api`
 
-**Status: Planned.** None of these endpoints are implemented yet. This document is the target contract, verified against the frontend's actual calls (see [Frontend Integration](frontend-integration.md)).
+**Status:** `/health` and `/auth/*` are **built and tested**. The `/habits`, `/logs` and `/ai` endpoints are still **planned**. This document is the target contract, verified against the frontend's actual calls (see [Frontend Integration](frontend-integration.md)).
 
 ## Conventions
 
@@ -51,7 +51,15 @@ Response `200`: `{ user }`
 Body (all optional): `{ name, morningMotivation }`
 Response `200`: `{ user }`. If `name` changes, `avatar` is recomputed from it.
 
-**User object:** `{ _id, name, email, avatar, morningMotivation, createdAt, updatedAt }`. The password is never included.
+**User object:** `{ _id, name, email, avatar, morningMotivation, createdAt, updatedAt }` (plus Mongoose's `__v`). The password is never included. `morningMotivation` defaults to `false`.
+
+**Implementation notes (verified):**
+- `name`, `email` and `password` (register) and `email` and `password` (login) must be **strings**. Objects such as `{ "$gt": "" }` are rejected with `400`, which blocks NoSQL operator injection.
+- Emails are normalized to lowercase, so `A@B.com` and `a@b.com` are the same account (duplicate register returns `400`).
+- Invalid email format returns `400 "Please provide a valid email address"`.
+- `PUT /auth/profile` validates that `name` is a non-empty string and `morningMotivation` is a boolean.
+- Token lifetime comes from `JWT_EXPIRES_IN` (default `30d`).
+- Protected routes return `401` with `"Not authorized, no token"` or `"Not authorized, token is invalid or expired"`.
 
 ---
 

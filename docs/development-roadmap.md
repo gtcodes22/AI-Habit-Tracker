@@ -10,7 +10,7 @@ Last updated: 2026-09-20
 | Frontend housekeeping (`.gitignore`, `.env`, dependency audit) | **Done** |
 | Backend `package.json` and dependencies | **Done**: 180 packages, 0 vulnerabilities |
 | Backend `.gitignore` | **Done** |
-| Backend source code | **Not started** |
+| Backend source code | **In progress**: Phase 1 (server foundation) and Phase 2 (authentication) done and tested; Phases 3–6 not started |
 | Frontend → backend cutover | **Not started** |
 | Documentation | **Done** (this folder) |
 
@@ -19,19 +19,20 @@ Last updated: 2026-09-20
 Follow this order. Each step should be tested before the next begins.
 
 ### Phase 1: Foundation
-- [ ] Create folders: `config`, `controllers`, `middleware`, `models`, `routes`, `utils`, `scripts`
-- [ ] Create `backend/.env` (Atlas URI, JWT secret, Gemini key, port, client URL). *Needs the user to create the Atlas cluster and Gemini key.*
-- [ ] `config/db.js`: `connectDB()`
-- [ ] `middleware/errorHandler.js`: `notFound`, `errorHandler`
-- [ ] `server.js`: CORS, JSON, health route, error handlers, connect-then-listen
-- [ ] **Test:** `GET /api/health`; terminal shows "MongoDB connected"
+- [x] Create folders: `config`, `controllers`, `middleware`, `models`, `routes`, `utils`, `scripts`
+- [x] Create `backend/.env` (Atlas URI, JWT secret, Gemini key, port, client URL)
+- [x] `config/db.js`: `connectDB()`
+- [x] `middleware/errorHandler.js`: `notFound`, `errorHandler`
+- [x] `server.js`: CORS, JSON, health route, error handlers, connect-then-listen
+- [x] **Test:** `GET /api/health`; terminal shows "MongoDB Connected" *(done 2026-09-21)*
 
 ### Phase 2: Authentication
-- [ ] `models/User.js` (hash hook, `matchPassword`, `toJSON`)
-- [ ] `middleware/auth.js` (`protect`)
-- [ ] `controllers/authController.js` (register, login, me, profile)
-- [ ] `routes/auth.js` and mount at `/api/auth`
-- [ ] **Test:** register → login → `me` with bearer token; confirm the hash in Atlas and that no password appears in responses
+- [x] `models/User.js` (hash hook, `matchPassword`, `toJSON`)
+- [x] `middleware/auth.js` (`protect`)
+- [x] `controllers/authController.js` (register, login, me, profile)
+- [x] `routes/auth.js` and mount at `/api/auth`
+- [x] **Test:** register → login → `me` with bearer token; no password in responses *(done 2026-09-21: 20 checks passed; test user deleted afterward)*
+- [ ] Optional: confirm the bcrypt hash is stored in Atlas by registering a real account and viewing the `users` collection
 
 ### Phase 3: Habits
 - [ ] `models/Habit.js` (capitalized category enum)
