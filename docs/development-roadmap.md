@@ -10,7 +10,7 @@ Last updated: 2026-09-20
 | Frontend housekeeping (`.gitignore`, `.env`, dependency audit) | **Done** |
 | Backend `package.json` and dependencies | **Done**: 180 packages, 0 vulnerabilities |
 | Backend `.gitignore` | **Done** |
-| Backend source code | **In progress**: Phases 1–3 (server foundation, auth, habits) done and tested; Phases 4–6 not started |
+| Backend source code | **In progress**: Phases 1–4 (server foundation, auth, habits, logs & stats) done and tested; Phases 5–6 not started |
 | Frontend → backend cutover | **Not started** |
 | Documentation | **Done** (this folder) |
 
@@ -42,12 +42,13 @@ Follow this order. Each step should be tested before the next begins.
 - [x] **Test:** create, list, update, archive, `includeArchived`, delete, reorder, cascade delete, malformed-id handling *(done 2026-10-05: 18 checks passed against live Atlas; test data cleaned up)*
 
 ### Phase 4: Logs and stats
-- [ ] `utils/dateHelpers.js` (`toDateKey`, `todayKey`, `last90Days`, `currentWeekKeys`, `lastNDays`, `calcStreak`)
+- [x] `utils/dateHelpers.js` (`toDateKey`, `todayKey`, `last90Days`, `currentWeekKeys`, `lastNDays`, `calcStreak`)
 - [x] `models/HabitLog.js` (unique compound index) — built early, in Phase 3, for cascade delete
-- [ ] `controllers/logController.js` (mark, unmark, today, range, heatmap, stats, per-habit stats)
-- [ ] `routes/logs.js` (`/stats` before `/stats/:habitId`) and mount
-- [ ] Return `/logs/stats` as `{ perHabit, days }`
-- [ ] **Test:** mark twice (no duplicate), today, heatmap, stats, unmark
+- [x] `controllers/logController.js` (mark, unmark, today, range, heatmap, stats, per-habit stats)
+- [x] `routes/logs.js` (`/stats` before `/stats/:habitId`) and mount
+- [x] Return `/logs/stats` as `{ perHabit, days }`
+- [x] **Test:** mark twice (no duplicate), today, range, heatmap, stats, per-habit stats, unmark *(done 2026-10-05: 23 checks passed against live Atlas, including hand-verified streak math; test data cleaned up)*
+- [ ] `currentWeekKeys()` is written but not yet used by any endpoint — the weekly grid currently derives its own ranges from `/logs/range` on the frontend. Revisit only if a backend-driven weekly endpoint is needed later.
 
 ### Phase 5: AI
 - [ ] `models/AIInsight.js`

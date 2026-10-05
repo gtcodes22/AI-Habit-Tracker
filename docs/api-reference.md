@@ -2,7 +2,7 @@
 
 Base URL (local): `http://localhost:8000/api`
 
-**Status:** `/health`, `/auth/*` and `/habits/*` are **built and tested**. The `/logs` and `/ai` endpoints are still **planned**. This document is the target contract, verified against the frontend's actual calls (see [Frontend Integration](frontend-integration.md)).
+**Status:** `/health`, `/auth/*`, `/habits/*` and `/logs/*` are **built and tested**. The `/ai` endpoints are still **planned**. This document is the target contract, verified against the frontend's actual calls (see [Frontend Integration](frontend-integration.md)).
 
 ## Conventions
 
@@ -148,7 +148,15 @@ Declare **after** `/logs/stats`. Response:
   "monthly": { }
 }
 ```
-`completionRate` is based on days since the habit was created. `monthly` breaks completions down by month.
+`completionRate` is `totalCompletions / daysSinceCreated`, as a whole-number percentage, capped at 100. `monthly` maps `"yyyy-MM"` to a completion count for that month, covering the habit's full history. *The current frontend does not call this endpoint* (see [Frontend Integration](frontend-integration.md)); its response shape is otherwise unconstrained by the UI.
+
+**Implementation notes (verified for all `/logs/*` endpoints):**
+- `POST /logs` (mark) is a true **idempotent upsert**: calling it twice for the same habit and day returns the same log document (confirmed only one document exists in the database either way). A concurrent duplicate-key race is caught and resolved by re-reading the existing log rather than erroring.
+- `DELETE /logs` (unmark) is also idempotent: unmarking an already-unmarked day still returns `200 "Unmarked"` rather than a `404`.
+- `habitId` must belong to the authenticated user; an unknown or malformed `habitId` returns `404 "Habit not found"`, not a 500.
+- `GET /logs/range` requires `start` and `end` as plain date strings; anything else (missing, or a non-string shape such as a query-injection attempt) returns `400`.
+- `GET /logs/stats` streaks are computed **only from the last 30 days** of logs (matching the frontend's mock `mockStreak` behavior exactly), not the habit's full history — that's what `GET /logs/stats/:habitId` is for.
+- The streak algorithm (`calcStreak` in `utils/dateHelpers.js`) was hand-verified: a 2-day current streak (today + yesterday) and a separate, non-adjacent 4-day run further back correctly produced `currentStreak: 2, longestStreak: 4`.
 
 ---
 

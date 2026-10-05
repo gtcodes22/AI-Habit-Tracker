@@ -4,6 +4,18 @@ All notable changes to this project are recorded here. Format loosely follows [K
 
 ## [Unreleased]
 
+### 2026-10-05 (2)
+
+#### Added
+- **Logs & stats** (Phase 4):
+  - `utils/dateHelpers.js`: `toDateKey`, `todayKey`, `lastNDays`, `last90Days`, `currentWeekKeys` (Monday-start week), and `calcStreak` — a port of the frontend mock's `mockStreak` logic, so streak numbers match what the UI already expects.
+  - `controllers/logController.js` and `routes/logs.js`, mounted at `/api/logs`: `POST /` (mark, idempotent upsert), `DELETE /` (unmark, idempotent), `GET /today`, `GET /range`, `GET /heatmap` (last 90 days), `GET /stats` (`{ perHabit, days }`, 30-day window), `GET /stats/:habitId` (full history, with `completionRate` and a monthly breakdown).
+  - Input hardening consistent with earlier phases: `habitId`/dates must be well-formed strings; a malformed or unknown habit id returns 404, never a 500; a concurrent duplicate-mark race is caught and resolved rather than erroring.
+
+#### Verified
+- 23 endpoint checks against a live server and the Atlas database: auth requirement; mark (success, duplicate-is-idempotent, bad habitId, missing habitId, bad date); today; range (success, missing params → 400); heatmap (90 entries, correct counts at seeded offsets); stats and per-habit stats, with streak numbers hand-calculated in advance and matched exactly; not-found and malformed-id handling for per-habit stats; unmark (success, idempotent re-unmark).
+- Test habits, logs and the throwaway test user were removed afterward; the pre-existing real account was left untouched.
+
 ### 2026-10-05
 
 #### Added
