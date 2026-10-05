@@ -4,6 +4,17 @@ All notable changes to this project are recorded here. Format loosely follows [K
 
 ## [Unreleased]
 
+### 2026-10-05 (4)
+
+#### Added
+- **Seed script** (Phase 6): `scripts/seed.js` — a demo user (`demo@habittracker.local` / `Demo1234!`, overridable via `SEED_EMAIL`/`SEED_PASSWORD`) with 7 habits and ~441 logs over the last 90 days, reusing the frontend's existing `mockData.js` habit definitions and deterministic pseudo-random log generator (not the tutorial's spoken "8 habits" — matching the project's own established mock data was the priority). Safe to re-run: wipes and rebuilds the same account by email rather than creating duplicates.
+- [Setup Guide](setup-guide.md): a "Demo account" section with the seeded login.
+
+#### Verified
+- Ran `npm run seed` twice: confirmed the same user `_id`, the same habit count (7, not 14) and the same log count (441, not doubled) both times.
+- Logged in as the seeded demo user through the real `/api/auth/login` endpoint (not a direct DB check) and confirmed `/api/habits`, `/api/logs/stats` and `/api/logs/heatmap` all return realistic, varied data matching each habit's intended pattern — e.g. a 13-day current streak on the high-probability water habit, a short streak on the drop-off journal habit, and a confirmed 5-day gap with zero logs around the forced broken-streak habit.
+- This demo data was intentionally **not** cleaned up afterward (unlike every other phase's throwaway test data) — it's meant to persist as a standing demo account.
+
 ### 2026-10-05 (3)
 
 #### Added

@@ -10,7 +10,7 @@ Last updated: 2026-09-20
 | Frontend housekeeping (`.gitignore`, `.env`, dependency audit) | **Done** |
 | Backend `package.json` and dependencies | **Done**: 180 packages, 0 vulnerabilities |
 | Backend `.gitignore` | **Done** |
-| Backend source code | **In progress**: Phases 1–5 (server foundation, auth, habits, logs & stats, AI) done and tested; Phase 6 not started |
+| Backend source code | **In progress**: Phases 1–6 (server foundation, auth, habits, logs & stats, AI, seed script) done and tested; Phase 7 (frontend cutover) not started |
 | Frontend → backend cutover | **Not started** |
 | Documentation | **Done** (this folder) |
 
@@ -64,8 +64,15 @@ Follow this order. Each step should be tested before the next begins.
 - **A live outage surfaced a real gap**: `suggest-habits`' fallback to `DEFAULT_SUGGESTIONS` originally only covered *malformed JSON* from the model, not an outright API failure (e.g. a 503). Widened the `try/catch` in `getSuggestions` to cover both — confirmed fixed by reproducing the outage live and watching it fall back to `DEFAULT_SUGGESTIONS` with a `200` instead of erroring.
 
 ### Phase 6: Seed script
-- [ ] `scripts/seed.js`: demo user, 8 habits, about 500 logs over 90 days, deterministic patterns
-- [ ] **Test:** `npm run seed`, log in as the demo user
+- [x] `scripts/seed.js`: demo user, **7** habits (matching the frontend's existing `mockData.js` exactly, rather than the tutorial's spoken "8" — see note below), ~441 logs over 90 days, deterministic patterns (weekday-only, drop-off, a forced broken streak)
+- [x] **Test:** `npm run seed`, log in as the demo user *(done 2026-10-05)*
+
+**Notes:**
+- **7 habits, not 8.** The frontend's `src/utils/mockData.js` already defines 7 habits with this exact deterministic algorithm, used for months of frontend-only development. Matching it exactly (same names, categories, colors, icons, patterns) was more valuable than inventing an 8th habit just to match the tutorial's narrated count.
+- **Idempotent, verified:** running `npm run seed` twice produced the identical user `_id`, the same 7 habits (not 14), and the same 441 logs (not doubled) — confirmed by direct DB query between runs.
+- **Verified end-to-end**, not just at the database level: logged in as the demo user through the real `/api/auth/login` endpoint, then called `/api/habits`, `/api/logs/stats` and `/api/logs/heatmap` and got back realistic, varied streaks matching each habit's intended pattern (e.g. the 95%-probability water habit showing a 13-day current streak; the drop-off journal habit showing a short 1-day streak).
+- **This demo data is meant to stay** — unlike every other phase's test data, it was not cleaned up afterward. Re-run `npm run seed` anytime to reset it.
+- The weekday-vs-weekend differentiation is real but softer than the sine-based generator's nominal probabilities suggest (measured 61% vs 42% for a habit targeting ~70% vs ~24%, roughly a 1.45x gap rather than the implied ~3x). This is an inherent property of the existing algorithm (shared with the frontend mock), not a bug introduced here — the pattern is still clearly visible in the data.
 
 ### Phase 7: Frontend cutover
 - [ ] Replace `src/api/axios.js` with the real client

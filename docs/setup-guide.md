@@ -101,6 +101,15 @@ With the backend running:
 
 For API testing, use Thunder Client (VS Code), Postman or curl. See [API Reference](api-reference.md).
 
+## Demo account
+
+`npm run seed` (from `backend/`) populates a ready-made demo account: 7 habits with 90 days of realistic, varied history (around 440 logs), safe to re-run anytime to reset it back to this same state.
+
+- **Email:** `demo@habittracker.local`
+- **Password:** `Demo1234!`
+
+Override either with `SEED_EMAIL` / `SEED_PASSWORD` environment variables if you'd rather not use the defaults. The script only ever touches this one account — it never affects any other user.
+
 ## Secrets checklist
 
 - `backend/.gitignore` ignores `node_modules` and `.env`.
