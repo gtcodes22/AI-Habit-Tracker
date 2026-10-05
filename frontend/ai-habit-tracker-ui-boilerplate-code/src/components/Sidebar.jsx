@@ -10,8 +10,9 @@ import {
   Sparkles,
   Sun,
   Moon,
+  RefreshCw,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import Modal from "./Modal.jsx";
@@ -31,7 +32,30 @@ export default function Sidebar() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [morning, setMorning] = useState(user?.morningMotivation || false);
   const [name, setName] = useState(user?.name || "");
+  const [aiProvider, setAiProvider] = useState(user?.aiProvider || "gemini");
+  const [aiModel, setAiModel] = useState(user?.aiModel || "");
   const [saving, setSaving] = useState(false);
+
+  const [ollama, setOllama] = useState({ checking: false, reachable: null, models: [] });
+
+  const checkOllama = async () => {
+    setOllama((o) => ({ ...o, checking: true }));
+    try {
+      const res = await api.get("/ai/ollama-models");
+      setOllama({ checking: false, reachable: res.data.reachable, models: res.data.models });
+    } catch {
+      setOllama({ checking: false, reachable: false, models: [] });
+    }
+  };
+
+  // Check Ollama as soon as the user picks it, so the model dropdown is
+  // ready without an extra click.
+  useEffect(() => {
+    if (settingsOpen && aiProvider === "ollama" && ollama.reachable === null) {
+      checkOllama();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsOpen, aiProvider]);
 
   const save = async () => {
     setSaving(true);
@@ -39,6 +63,8 @@ export default function Sidebar() {
       const res = await api.put("/auth/profile", {
         name,
         morningMotivation: morning,
+        aiProvider,
+        aiModel,
       });
       updateUser(res.data.user);
       setSettingsOpen(false);
@@ -141,6 +167,74 @@ export default function Sidebar() {
               </div>
             </div>
           </label>
+
+          <div className="pt-2 border-t divider">
+            <label className="label mt-3">AI provider</label>
+            <select
+              className="input"
+              value={aiProvider}
+              onChange={(e) => {
+                setAiProvider(e.target.value);
+                setAiModel("");
+              }}
+            >
+              <option value="gemini">Gemini (default)</option>
+              <option value="ollama">Local model (Ollama)</option>
+            </select>
+
+            {aiProvider === "ollama" && (
+              <div className="mt-3 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span
+                    className={
+                      ollama.checking
+                        ? "text-faint"
+                        : ollama.reachable
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-rose-500"
+                    }
+                  >
+                    {ollama.checking
+                      ? "Checking Ollama..."
+                      : ollama.reachable === null
+                        ? ""
+                        : ollama.reachable
+                          ? `✓ Connected — ${ollama.models.length} model${ollama.models.length === 1 ? "" : "s"} found`
+                          : "✕ Can't reach Ollama. Is it running?"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={checkOllama}
+                    className="btn-ghost p-1.5"
+                    aria-label="Re-check Ollama connection"
+                    title="Re-check connection"
+                  >
+                    <RefreshCw size={14} className={ollama.checking ? "animate-spin" : ""} />
+                  </button>
+                </div>
+
+                {ollama.models.length > 0 ? (
+                  <select
+                    className="input"
+                    value={aiModel}
+                    onChange={(e) => setAiModel(e.target.value)}
+                  >
+                    <option value="">Use server default</option>
+                    {ollama.models.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="input"
+                    placeholder="Model name (e.g. gemma2:9b) — leave blank for server default"
+                    value={aiModel}
+                    onChange={(e) => setAiModel(e.target.value)}
+                  />
+                )}
+              </div>
+            )}
+          </div>
 
           <div className="flex justify-end gap-2 pt-2">
             <button

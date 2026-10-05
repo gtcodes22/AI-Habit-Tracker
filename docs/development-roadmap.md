@@ -10,8 +10,8 @@ Last updated: 2026-09-20
 | Frontend housekeeping (`.gitignore`, `.env`, dependency audit) | **Done** |
 | Backend `package.json` and dependencies | **Done**: 180 packages, 0 vulnerabilities |
 | Backend `.gitignore` | **Done** |
-| Backend source code | **Done**: all 7 phases (server foundation, auth, habits, logs & stats, AI, seed script, frontend cutover) built and tested |
-| Frontend → backend cutover | **Not started** |
+| Backend source code | **Done**: all 9 phases (server foundation, auth, habits, logs & stats, AI, seed script, frontend cutover, offline AI via Ollama, user-managed AI settings) built and tested |
+| Frontend → backend cutover | **Done** (Phase 7) |
 | Documentation | **Done** (this folder) |
 
 ## Backend build order
@@ -80,7 +80,24 @@ Follow this order. Each step should be tested before the next begins.
 - [x] Restart Vite; register a new account; click through every page
 - [x] **Test:** verified end-to-end with Playwright against the real running app — register, empty dashboard, create habit, check off (confetti fires), visit all 5 other pages, logout/login, confirm persistence. 11/11 checks passed, zero console errors *(done 2026-10-05)*. See [Frontend Integration](frontend-integration.md) for the full account.
 
-**All 7 phases are now complete.** The backend is fully built and the frontend is fully cut over to it. What's left is optional cleanup and future ideas — see below and [Ideas & Future Development](ideas.md).
+The original 7-phase build plan ended here: backend fully built, frontend fully cut over. Two more phases followed from [Ideas & Future Development](ideas.md).
+
+### Phase 8: Offline AI via Ollama
+- [x] `AI_PROVIDER` env var (`gemini` default, or `ollama`); `chatCompletion()` in `utils/aiService.js` dispatches to a plain local HTTP call to Ollama's `/api/chat` — no SDK needed
+- [x] `OLLAMA_BASE_URL`, `OLLAMA_MODEL` env vars; degrades gracefully (a friendly message, not a crash) if Ollama isn't reachable
+- [x] `AIInsight.meta` records `{ provider, model }` on every AI response
+- [x] **Test:** real end-to-end generation verified live (not just the request/response plumbing) — see [Ideas & Future Development](ideas.md) for the full story, including a mid-investigation correction (an early "hang" turned out to be reasoning-model behavior, not a bug) and a genuine finding (`gemma2:9b` currently OOMs on this machine's 6 GB VRAM GPU; `mistral:latest` confirmed working) *(done 2026-10-05)*
+
+### Phase 9: User-managed AI settings
+- [x] `models/User.js`: per-user `aiProvider` (`gemini`/`ollama`) and `aiModel` fields, default `gemini` (unchanged behavior for existing users)
+- [x] `PUT /api/auth/profile` accepts and validates both fields
+- [x] `aiService.js`: `chatCompletion()` and the new `resolveProviderAndModel()` accept a per-call `{ provider, model }` override, so a user's saved preference overrides the server default without any env change
+- [x] All five `aiController.js` handlers resolve the calling user's preference and record the *actually used* provider/model in `AIInsight.meta`
+- [x] `GET /api/ai/ollama-models` — lists models currently pulled in the local Ollama install (proxies `/api/tags`) and doubles as a connectivity check
+- [x] Frontend: Settings modal (`Sidebar.jsx`) gets an "AI provider" section — a Gemini/Ollama dropdown, and for Ollama, a live connection status line, a re-check button, and a model dropdown populated from the real local install (falls back to a free-text field if Ollama isn't reachable)
+- [x] **Test:** verified end-to-end with Playwright against the real running app (Ollama included) — default is Gemini, switching to Ollama shows a live "✓ Connected — 9 models found" status with the actual 9 pulled models in the dropdown, the chosen model persists through a page reload *and* a full logout/login cycle. 9/9 checks passed, zero console errors *(done 2026-10-05)*
+
+**Claude and ChatGPT support (user-supplied API keys) is a separate, not-yet-started piece** — it needs encrypted per-user secret storage, which Phases 8–9 deliberately didn't require. See [Ideas & Future Development](ideas.md) for the design.
 
 ## Optional cleanup
 
@@ -102,4 +119,4 @@ Follow this order. Each step should be tested before the next begins.
 
 ## Out of scope (for now)
 
-Push notifications, social streak sharing, custom icon uploads, a React Native mobile app, and support for AI providers other than Gemini (Claude, Ollama). These are tracked, with notes, in [Ideas & Future Development](ideas.md). New ideas go there, not here.
+Push notifications, social streak sharing, custom icon uploads, a React Native mobile app, and Claude/ChatGPT support with user-supplied API keys. (Ollama support shipped in Phase 8–9, above — no longer out of scope.) These are tracked, with notes, in [Ideas & Future Development](ideas.md). New ideas go there, not here.

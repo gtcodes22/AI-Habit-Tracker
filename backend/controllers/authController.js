@@ -95,7 +95,7 @@ export const getMe = (req, res) => {
 // PUT /api/auth/profile  (protected)
 export const updateProfile = async (req, res, next) => {
     try {
-        const { name, morningMotivation } = req.body;
+        const { name, morningMotivation, aiProvider, aiModel } = req.body;
 
         if (name !== undefined && (typeof name !== "string" || !name.trim())) {
             return res.status(400).json({ message: "Name cannot be empty" });
@@ -107,6 +107,17 @@ export const updateProfile = async (req, res, next) => {
             return res
                 .status(400)
                 .json({ message: "morningMotivation must be true or false" });
+        }
+        if (
+            aiProvider !== undefined &&
+            !["gemini", "ollama"].includes(aiProvider)
+        ) {
+            return res
+                .status(400)
+                .json({ message: "aiProvider must be 'gemini' or 'ollama'" });
+        }
+        if (aiModel !== undefined && typeof aiModel !== "string") {
+            return res.status(400).json({ message: "aiModel must be a string" });
         }
 
         const user = await User.findById(req.user._id);
@@ -120,6 +131,12 @@ export const updateProfile = async (req, res, next) => {
         }
         if (morningMotivation !== undefined) {
             user.morningMotivation = morningMotivation;
+        }
+        if (aiProvider !== undefined) {
+            user.aiProvider = aiProvider;
+        }
+        if (aiModel !== undefined) {
+            user.aiModel = aiModel.trim();
         }
 
         await user.save();

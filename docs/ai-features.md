@@ -11,7 +11,7 @@
 | `parseJSON(text)` | Strips markdown code fences (```` ```json ````) before `JSON.parse`, since the model often wraps JSON in them. |
 | `chatCompletion(system, user, temperature?)` | Calls the model with the system prompt in config and returns trimmed text. With no client, returns a placeholder saying AI features are disabled. |
 
-> **Design note:** keep every Gemini-specific detail (SDK import, client creation, model name, response parsing) inside `aiService.js`, and have the controllers call only `chatCompletion(...)`. That single seam is what would make it easy to add other providers (Claude, local models via Ollama) later. See [Ideas & Future Development](ideas.md).
+> **Design note:** keep every provider-specific detail (SDK import, client creation, model name, response parsing) inside `aiService.js`, and have the controllers call only `chatCompletion(...)`. That seam paid off: Ollama support (2026-10-05) was a self-contained addition to that one file — `chatCompletion()` dispatches on `AI_PROVIDER` (`gemini` default, or `ollama`, a plain local HTTP call, no SDK), and none of the five controllers below changed. See [Ideas & Future Development](ideas.md) for details, including a live-verified generation round-trip and a memory caveat around the default model on resource-constrained machines.
 
 ## The five features
 

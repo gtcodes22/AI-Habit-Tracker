@@ -5,6 +5,7 @@ import {
     getRecoveryPlan,
     getChatAnswer,
     getMorningMotivation,
+    getOllamaModels,
 } from "../controllers/aiController.js";
 import { protect } from "../middleware/auth.js";
 
@@ -18,5 +19,6 @@ router.post("/suggest-habits", getSuggestions);
 router.post("/recovery-plan", getRecoveryPlan);
 router.post("/chat", getChatAnswer);
 router.get("/morning", getMorningMotivation);
+router.get("/ollama-models", getOllamaModels);
 
 export default router;

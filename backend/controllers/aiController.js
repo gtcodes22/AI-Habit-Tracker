@@ -7,12 +7,26 @@ import {
     PROMPTS,
     sanitizeSuggestion,
     DEFAULT_SUGGESTIONS,
+    resolveProviderAndModel,
+    fetchOllamaModels,
 } from "../utils/aiService.js";
 import { lastNDays, todayKey, calcStreak } from "../utils/dateHelpers.js";
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 const isCastError = (err) => err.name === "CastError";
+
+// A user's saved AI preference, in the shape chatCompletion()'s override
+// expects. An empty aiModel means "use that provider's server default",
+// so it's dropped rather than passed through as an empty string.
+const userOverride = (user) => ({
+    provider: user.aiProvider,
+    model: user.aiModel || undefined,
+});
+
+// Recorded on every AIInsight so results can be compared across
+// providers/users later (see docs/ideas.md).
+const providerMeta = (override) => resolveProviderAndModel(override);
 
 // Groups a list of HabitLog documents by habitId, returning a
 // Map<habitIdString, dateKey[]>.
@@ -52,8 +66,9 @@ export const getWeeklyReport = async (req, res, next) => {
         });
         const userMessage = `This user's habit data for the last 7 days (${days[0]} to ${days[days.length - 1]}):\n${lines.join("\n")}`;
 
-        const content = await chatCompletion(PROMPTS.weekly, userMessage);
-        await AIInsight.create({ userId: req.user._id, type: "weekly", content });
+        const override = userOverride(req.user);
+        const content = await chatCompletion(PROMPTS.weekly, userMessage, 0.7, override);
+        await AIInsight.create({ userId: req.user._id, type: "weekly", content, meta: providerMeta(override) });
         res.json({ content });
     } catch (err) {
         next(err);
@@ -82,9 +97,10 @@ export const getSuggestions = async (req, res, next) => {
         // This endpoint is designed to never fail the user: a Gemini outage,
         // a rate limit, or just malformed JSON all fall back to the same
         // hard-coded suggestions rather than surfacing an error.
+        const override = userOverride(req.user);
         let suggestions;
         try {
-            const raw = await chatCompletion(PROMPTS.suggestion, userMessage);
+            const raw = await chatCompletion(PROMPTS.suggestion, userMessage, 0.7, override);
             const parsed = parseJSON(raw);
             const list = Array.isArray(parsed)
                 ? parsed
@@ -101,7 +117,7 @@ export const getSuggestions = async (req, res, next) => {
             userId: req.user._id,
             type: "suggestion",
             content: JSON.stringify(suggestions),
-            meta: { goals, productiveTime, struggles },
+            meta: { goals, productiveTime, struggles, ...providerMeta(override) },
         });
         res.json({ suggestions });
     } catch (err) {
@@ -124,13 +140,14 @@ export const getRecoveryPlan = async (req, res, next) => {
         const { current, longest } = calcStreak(logs.map((l) => l.completedDate));
 
         const userMessage = `Habit: ${habit.name} (${habit.category})\nCurrent streak: ${current} days\nLongest streak ever: ${longest} days\nThe user recently broke their streak on this habit and wants help getting back on track.`;
-        const content = await chatCompletion(PROMPTS.recovery, userMessage);
+        const override = userOverride(req.user);
+        const content = await chatCompletion(PROMPTS.recovery, userMessage, 0.7, override);
 
         await AIInsight.create({
             userId: req.user._id,
             type: "recovery",
             content,
-            meta: { habitId: habit._id },
+            meta: { habitId: habit._id, ...providerMeta(override) },
         });
         res.json({ content });
     } catch (err) {
@@ -175,12 +192,13 @@ export const getChatAnswer = async (req, res, next) => {
         });
         const userMessage = `Habit data for the last 30 days:\n${lines.join("\n")}\n\nQuestion: ${question}`;
 
-        const content = await chatCompletion(PROMPTS.chat, userMessage);
+        const override = userOverride(req.user);
+        const content = await chatCompletion(PROMPTS.chat, userMessage, 0.7, override);
         await AIInsight.create({
             userId: req.user._id,
             type: "chat",
             content,
-            meta: { question },
+            meta: { question, ...providerMeta(override) },
         });
         res.json({ content });
     } catch (err) {
@@ -218,9 +236,22 @@ export const getMorningMotivation = async (req, res, next) => {
 
         // Higher temperature: this runs every day, so more variety helps it
         // not feel repetitive.
-        const content = await chatCompletion(PROMPTS.morning, userMessage, 0.8);
-        await AIInsight.create({ userId: req.user._id, type: "morning", content });
+        const override = userOverride(req.user);
+        const content = await chatCompletion(PROMPTS.morning, userMessage, 0.8, override);
+        await AIInsight.create({ userId: req.user._id, type: "morning", content, meta: providerMeta(override) });
         res.json({ content });
+    } catch (err) {
+        next(err);
+    }
+};
+
+// GET /api/ai/ollama-models
+// Lists the models currently pulled on the local Ollama install, and
+// doubles as a connectivity check for the Settings UI's "Test connection".
+export const getOllamaModels = async (req, res, next) => {
+    try {
+        const result = await fetchOllamaModels();
+        res.json(result);
     } catch (err) {
         next(err);
     }

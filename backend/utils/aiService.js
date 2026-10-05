@@ -13,7 +13,23 @@ const getClient = () => {
     return client;
 };
 
+// "gemini" (default) or "ollama". Lets the backend run entirely on a local
+// model with no API key — see docs/ideas.md for the design notes.
+export const PROVIDER = process.env.AI_PROVIDER || "gemini";
+
 export const MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+export const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+export const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "gemma2:9b";
+
+// The provider/model actually in use for a call — same resolution
+// chatCompletion() does — for the caller to record alongside an AIInsight
+// (so results can be compared across providers/users later).
+export const resolveProviderAndModel = (override = {}) => {
+    const provider = override.provider || PROVIDER;
+    const model =
+        override.model || (provider === "ollama" ? OLLAMA_MODEL : MODEL);
+    return { provider, model };
+};
 
 // The model sometimes wraps JSON output in ```json ... ``` fences even when
 // told not to. Strip those before parsing.
@@ -65,12 +81,7 @@ const getSuggestedDelayMs = (err) => {
     return undefined;
 };
 
-// Sends one request to Gemini with a system prompt + user message and
-// returns the trimmed text. Falls back to a placeholder when no API key is
-// configured, rather than throwing. Retries briefly on transient errors
-// (rate limits, temporary overload) since Gemini's own error messages
-// describe these as "usually temporary."
-export const chatCompletion = async (systemPrompt, userMessage, temperature = 0.7) => {
+const chatCompletionGemini = async (systemPrompt, userMessage, temperature, model) => {
     const ai = getClient();
     if (!ai) {
         return "AI features are currently unavailable — ask the app owner to set GEMINI_API_KEY.";
@@ -78,7 +89,7 @@ export const chatCompletion = async (systemPrompt, userMessage, temperature = 0.
 
     const call = async () => {
         const response = await ai.models.generateContent({
-            model: MODEL,
+            model,
             contents: userMessage,
             config: {
                 systemInstruction: systemPrompt,
@@ -98,6 +109,77 @@ export const chatCompletion = async (systemPrompt, userMessage, temperature = 0.
             if (!isRetryable(err) || attempt === backoffMs.length) throw err;
             await sleep(getSuggestedDelayMs(err) ?? backoffMs[attempt]);
         }
+    }
+};
+
+// Ollama has no SDK — it's a plain local HTTP server. No API key, so
+// "unconfigured" isn't a state that applies; a connection failure (the
+// Ollama app/service isn't running) is the equivalent degrade-gracefully
+// case instead.
+const chatCompletionOllama = async (systemPrompt, userMessage, temperature, model) => {
+    let res;
+    try {
+        res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                model,
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: userMessage },
+                ],
+                stream: false,
+                options: { temperature },
+            }),
+        });
+    } catch {
+        // ECONNREFUSED etc. — the Ollama app/service isn't running.
+        return `AI features are currently unavailable — Ollama isn't reachable at ${OLLAMA_BASE_URL}. Start the Ollama app, or run \`ollama serve\`.`;
+    }
+
+    if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`Ollama request failed (${res.status}): ${body || res.statusText}`);
+    }
+
+    const data = await res.json();
+    return (data?.message?.content || "").trim();
+};
+
+// Sends one request to the configured AI provider with a system prompt +
+// user message and returns the trimmed text. Falls back to a placeholder
+// when unconfigured/unreachable, rather than throwing. The Gemini path
+// retries briefly on transient errors (rate limits, temporary overload).
+//
+// `override` lets a caller use a specific user's AI preference instead of
+// the server-wide default — pass { provider, model } (either field may be
+// omitted/empty to fall back to the server config for that part).
+export const chatCompletion = (systemPrompt, userMessage, temperature = 0.7, override = {}) => {
+    const provider = override.provider || PROVIDER;
+    const model =
+        override.model || (provider === "ollama" ? OLLAMA_MODEL : MODEL);
+
+    return provider === "ollama"
+        ? chatCompletionOllama(systemPrompt, userMessage, temperature, model)
+        : chatCompletionGemini(systemPrompt, userMessage, temperature, model);
+};
+
+// Lists the models currently pulled in the local Ollama installation (for a
+// model picker in the UI), and doubles as a connectivity check. Never
+// throws — a failure just means Ollama isn't reachable right now.
+export const fetchOllamaModels = async (baseUrl = OLLAMA_BASE_URL) => {
+    try {
+        const res = await fetch(`${baseUrl}/api/tags`, {
+            signal: AbortSignal.timeout(5000),
+        });
+        if (!res.ok) return { reachable: false, models: [] };
+        const data = await res.json();
+        const models = Array.isArray(data?.models)
+            ? data.models.map((m) => m.name).filter(Boolean)
+            : [];
+        return { reachable: true, models };
+    } catch {
+        return { reachable: false, models: [] };
     }
 };
 

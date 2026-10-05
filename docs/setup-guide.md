@@ -55,7 +55,10 @@ MONGO_URI=<your Atlas connection string>
 JWT_SECRET=<64-byte hex string>
 JWT_EXPIRES_IN=30d
 GEMINI_API_KEY=<your Google AI Studio key>
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.8-flash
+AI_PROVIDER=gemini
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=gemma2:9b
 CLIENT_URL=http://localhost:5173
 ```
 
@@ -64,9 +67,11 @@ CLIENT_URL=http://localhost:5173
 | `PORT` | Port the API listens on (8000) |
 | `MONGO_URI` | Atlas connection string (read by `config/db.js`) |
 | `JWT_SECRET` | Signs auth tokens. Use a long random value. |
-| `JWT_EXPIRES_IN` | Token lifetime, e.g. `30d`. The auth controller should read this instead of hard-coding 30 days. |
-| `GEMINI_API_KEY` | Enables AI features. Optional: without it, AI endpoints return a placeholder. |
-| `GEMINI_MODEL` | Gemini model name |
+| `JWT_EXPIRES_IN` | Token lifetime, e.g. `30d` (read by `authController.js`) |
+| `GEMINI_API_KEY` | Enables AI features via Gemini. Optional: without it (and with `AI_PROVIDER=gemini`), AI endpoints return a placeholder. |
+| `GEMINI_MODEL` | Gemini model name. **`gemini-2.5-flash` no longer works for new API keys** — use `gemini-3.8-flash` or whatever Google currently recommends. |
+| `AI_PROVIDER` | `gemini` (default) or `ollama` — see below |
+| `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | Only used when `AI_PROVIDER=ollama`; see below |
 | `CLIENT_URL` | Allowed CORS origin(s); comma-separated for several |
 
 > The variable name is `MONGO_URI`, matching `config/db.js`. `.env` must live in the **`backend/` root** (next to `server.js`), not in a subfolder: `dotenv` loads `.env` from the directory the server is started in, so a misplaced file is silently ignored.
@@ -92,7 +97,24 @@ node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 2. **Get API key → Create API key.**
 3. Copy it into `GEMINI_API_KEY`.
 
-## 5. Verify
+## 5. Optional: local AI via Ollama
+
+Set `AI_PROVIDER=ollama` to run the AI features against a local [Ollama](https://ollama.com) model instead of Gemini — no API key, no internet call, habit data never leaves the machine. Requires:
+
+1. [Ollama](https://ollama.com) installed and running (`ollama serve`, or the desktop app).
+2. A model pulled: `ollama pull gemma2:9b` (the project's default — see `OLLAMA_MODEL`).
+3. `AI_PROVIDER=ollama` in `backend/.env`.
+
+**If `gemma2:9b` fails to load** with an error like `failed to allocate buffer for kv cache` (out of memory), that's your machine's available RAM, not this backend. Either close other memory-heavy apps and retry, or switch to a smaller model — no code change needed, just update `OLLAMA_MODEL`:
+```
+OLLAMA_MODEL=mistral:latest
+```
+
+**If you pick a reasoning model** (e.g. `deepseek-r1` or `qwen3.5`), its chain-of-thought comes back separately from the final answer, so don't set `num_predict` too low in `options` — a small cap can truncate generation before the real answer ever appears.
+
+No code change is needed to flip providers — `chatCompletion()` dispatches based on `AI_PROVIDER` alone, and every AI feature works unchanged either way.
+
+## 6. Verify
 
 With the backend running:
 
@@ -129,5 +151,7 @@ Override either with `SEED_EMAIL` / `SEED_PASSWORD` environment variables if you
 | Frontend still shows mock data | `axios.js` not yet swapped, or `.env` changed without restarting Vite |
 | Browser CORS error | `CLIENT_URL` doesn't include the frontend's origin |
 | Redirected to `/login` after switching to the real API | Expected once: the old mock token is invalid. Register a fresh account. |
-| AI features return "disabled" text | `GEMINI_API_KEY` is missing or not loaded |
+| AI features return "disabled" text | `GEMINI_API_KEY` is missing or not loaded (Gemini provider), or `AI_PROVIDER=ollama` with Ollama not running |
+| Ollama model fails with "failed to allocate buffer for kv cache" | Out of memory for that model on this machine — not a backend bug. Close other apps, or switch `OLLAMA_MODEL` to a smaller model (e.g. `mistral:latest`) |
+| An Ollama response seems to produce no visible answer | Likely a reasoning model (`deepseek-r1`, `qwen3.5`, etc.) whose chain-of-thought is burning the token budget before any final answer — raise or remove `num_predict`, don't cap it low |
 | `401` on protected routes | Missing or expired `Authorization: Bearer <token>` header |

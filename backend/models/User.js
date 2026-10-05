@@ -29,6 +29,18 @@ const userSchema = new mongoose.Schema(
             type: Boolean,
             default: false,
         },
+        // Per-user AI provider preference. Empty aiModel means "use that
+        // provider's server-configured default" (GEMINI_MODEL / OLLAMA_MODEL).
+        aiProvider: {
+            type: String,
+            enum: ["gemini", "ollama"],
+            default: "gemini",
+        },
+        aiModel: {
+            type: String,
+            default: "",
+            trim: true,
+        },
     },
     { timestamps: true }
 );

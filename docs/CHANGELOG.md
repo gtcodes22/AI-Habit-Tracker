@@ -4,6 +4,38 @@ All notable changes to this project are recorded here. Format loosely follows [K
 
 ## [Unreleased]
 
+### 2026-10-05 (7) — Phase 9: user-managed AI settings
+
+#### Added
+- Per-user AI provider preference, replacing the server-wide-only `AI_PROVIDER` from Phase 8:
+  - `models/User.js`: `aiProvider` (`gemini`/`ollama`, default `gemini`) and `aiModel` fields.
+  - `PUT /api/auth/profile` validates and saves both.
+  - `utils/aiService.js`: `chatCompletion()` and the new `resolveProviderAndModel()` accept an optional `{ provider, model }` override, so a user's saved preference wins over the server default on a per-call basis — two users on the same server can use two different AI backends at once.
+  - All five `aiController.js` handlers build this override from the calling user and record the actually-used `{ provider, model }` in `AIInsight.meta`.
+- `GET /api/ai/ollama-models`: proxies Ollama's `/api/tags` to list locally-pulled models; doubles as a connectivity check for the Settings UI.
+- `Sidebar.jsx` Settings modal: an "AI provider" section (Gemini/Ollama dropdown; for Ollama, a live connection-status line, a re-check button, and a model dropdown sourced from the real local Ollama install, falling back to free text if unreachable).
+
+#### Verified
+- Backend: 6 checks (fresh-user default, profile update + persistence, validation on bad `aiProvider`/`aiModel`, auth requirement and live reachability on the new endpoint).
+- Frontend: drove the real running app with Playwright, Ollama actually running — 9/9 checks passed: default provider is Gemini; switching to Ollama shows a live "✓ Connected — 9 models found" status with the real 9 pulled models listed; a chosen model (`mistral:latest`) persisted through a page reload and a full logout/login cycle; zero console errors.
+- One screenshot initially looked visually broken (modal overlapping the sidebar); investigated and confirmed it was a Playwright `fullPage` + `backdrop-blur` capture artifact, not a real bug — a viewport-only screenshot showed a correctly rendered, centered modal.
+- Also discovered, while Ollama was running for this testing: this machine's GPU has 6 GB VRAM (~5 GB available), which explains Phase 8's `gemma2:9b` out-of-memory finding — noted in `docs/ideas.md` as a sizing guide for future local models.
+
+### 2026-10-05 (6) — Phase 8: offline AI via Ollama
+
+#### Added
+- **Ollama support** (from [Ideas & Future Development](ideas.md)): `AI_PROVIDER` env var (`gemini` default, or `ollama`) lets the backend run entirely on a local model, no API key, no internet call. `chatCompletion()` in `utils/aiService.js` now dispatches to a plain `fetch` against Ollama's local HTTP API (`/api/chat`) when selected — no new SDK dependency. Degrades gracefully (a friendly message) if Ollama isn't running, same as the existing "no Gemini key" case.
+- `AIInsight.meta` now records `{ provider, model }` on every AI response, so results can be compared across providers later.
+- New env vars: `OLLAMA_BASE_URL` (default `http://localhost:11434`), `OLLAMA_MODEL` (default `gemma2:9b`, per user preference). `AI_PROVIDER` defaults to `gemini`, so existing behavior is unchanged unless explicitly flipped.
+- [docs/setup-guide.md](setup-guide.md): a "local AI via Ollama" section and two troubleshooting rows.
+
+#### Verified
+- Server boots correctly and Gemini remains the active default with the new env vars present.
+- The Ollama code path degrades gracefully when Ollama is unreachable (wrong port), and correctly talks to the real local Ollama server — a bad model name produced Ollama's own clean 404 "model not found" with no hang.
+- **Real generation confirmed end-to-end**: a live call returned a complete, well-formed response, and the content-extraction logic (`message.content`, distinct from `message.thinking`) pulled exactly the right text — proving the integration code itself is correct.
+- **`gemma2:9b` (the chosen default) currently fails to load on this machine** with an out-of-memory error (reproduced twice, including with no other model loaded) — a real memory constraint on this machine, not a code defect. **`mistral:latest`** (already available) was confirmed working in ~9 seconds as a drop-in alternative via `OLLAMA_MODEL`, no code change.
+- Two early test attempts that looked like hangs were a red herring: `qwen3.5:4b` and `deepseek-r1:1.5b` are reasoning models whose hidden chain-of-thought was cut off by an overly low `num_predict` cap before any visible answer appeared — not an Ollama or hardware problem. Documented in `docs/ideas.md` and `docs/setup-guide.md`.
+
 ### 2026-10-05 (5)
 
 #### Changed
