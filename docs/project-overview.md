@@ -4,7 +4,7 @@
 
 Build a full-stack habit tracker with user accounts, daily check-offs, streaks, a 90-day heat map, weekly and statistics views, and five AI features powered by Google Gemini.
 
-The frontend is a pre-built, polished UI boilerplate that runs against an in-memory mock API. The main engineering work is **building the backend from scratch** and **swapping the mock out for it**.
+The frontend started as a pre-built, polished UI boilerplate running against an in-memory mock API. **As of 2026-10-05, the backend is fully built and the frontend is cut over to it** — see the [Development Roadmap](development-roadmap.md) for how each phase was verified.
 
 ## Features
 
@@ -57,7 +57,7 @@ Everything except `/`, `/login` and `/register` sits behind a `ProtectedRoute`.
 
 ```
 AI-Habit-Tracker/
-├── backend/                                   Express API (in progress)
+├── backend/                                   Express API (built, tested)
 ├── frontend/
 │   └── ai-habit-tracker-ui-boilerplate-code/  React app (own git repository)
 └── docs/                                      This documentation

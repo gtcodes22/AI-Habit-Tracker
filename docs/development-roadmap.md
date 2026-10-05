@@ -10,7 +10,7 @@ Last updated: 2026-09-20
 | Frontend housekeeping (`.gitignore`, `.env`, dependency audit) | **Done** |
 | Backend `package.json` and dependencies | **Done**: 180 packages, 0 vulnerabilities |
 | Backend `.gitignore` | **Done** |
-| Backend source code | **In progress**: Phases 1–6 (server foundation, auth, habits, logs & stats, AI, seed script) done and tested; Phase 7 (frontend cutover) not started |
+| Backend source code | **Done**: all 7 phases (server foundation, auth, habits, logs & stats, AI, seed script, frontend cutover) built and tested |
 | Frontend → backend cutover | **Not started** |
 | Documentation | **Done** (this folder) |
 
@@ -75,10 +75,12 @@ Follow this order. Each step should be tested before the next begins.
 - The weekday-vs-weekend differentiation is real but softer than the sine-based generator's nominal probabilities suggest (measured 61% vs 42% for a habit targeting ~70% vs ~24%, roughly a 1.45x gap rather than the implied ~3x). This is an inherent property of the existing algorithm (shared with the frontend mock), not a bug introduced here — the pattern is still clearly visible in the data.
 
 ### Phase 7: Frontend cutover
-- [ ] Replace `src/api/axios.js` with the real client
-- [ ] Delete `src/utils/mockData.js`
-- [ ] Restart Vite; register a new account; click through every page
-- [ ] Follow the verification list in [Frontend Integration](frontend-integration.md)
+- [x] Replace `src/api/axios.js` with the real client
+- [x] Delete `src/utils/mockData.js`
+- [x] Restart Vite; register a new account; click through every page
+- [x] **Test:** verified end-to-end with Playwright against the real running app — register, empty dashboard, create habit, check off (confetti fires), visit all 5 other pages, logout/login, confirm persistence. 11/11 checks passed, zero console errors *(done 2026-10-05)*. See [Frontend Integration](frontend-integration.md) for the full account.
+
+**All 7 phases are now complete.** The backend is fully built and the frontend is fully cut over to it. What's left is optional cleanup and future ideas — see below and [Ideas & Future Development](ideas.md).
 
 ## Optional cleanup
 

@@ -2,24 +2,22 @@
 
 ## Current state
 
-The frontend (`frontend/ai-habit-tracker-ui-boilerplate-code`) runs entirely on an **in-memory mock**:
+**Status: Done (Phase 7, 2026-10-05).** The frontend talks to the real backend. The in-memory mock described below is history, kept here for context on what changed and why.
 
-- `src/api/axios.js` is *not* axios. It is a hand-written router that fakes every endpoint (250 ms delay, data from `src/utils/mockData.js`). State resets on refresh.
-- A commented block at the top of that file contains the real axios client to paste in later.
-- `src/utils/mockData.js` exists only to feed the mock.
+- `src/api/axios.js` is now a real axios client: `axios.create({ baseURL: import.meta.env.VITE_API_URL })`, with a request interceptor attaching `Authorization: Bearer <token>` from `localStorage`, and a response interceptor that clears the session and redirects to `/login` on a `401` (except on `/`, `/login`, `/register`, to avoid a redirect loop).
+- `src/utils/mockData.js` is deleted.
 
-Every page imports `api` from `src/api/axios.js` and calls `api.get/post/put/delete`, so **swapping that one file switches the whole app to the real backend.**
+Before this cutover, `src/api/axios.js` was a hand-written router faking every endpoint from in-memory mock data (250 ms delay, state reset on refresh). Every page imports `api` from `src/api/axios.js` and calls `api.get/post/put/delete`, so the entire swap was contained to that one file plus the deletion.
 
-## The cutover (two changes)
+**Verified end-to-end**, not just read through: using Playwright against the real running app (backend on :8000, frontend on :5173), scripted and screenshotted a full user journey — register (fresh account) → landed on an empty dashboard (not stale mock habits) → created a habit through the real UI → checked it off (confetti fired, streak/consistency/weekly-grid widgets updated) → visited Habits, Weekly, Insights and Stats (all rendered real data, zero console or page errors) → logged out and back in → confirmed the habit persisted through the real backend rather than resetting (which the old mock would have done on a refresh). 11/11 scripted checks passed; the disposable test account was removed afterward.
 
-1. **`.env`** in the frontend: `VITE_API_URL=http://localhost:8000/api` (already set). Restart Vite afterwards.
-2. **Replace `src/api/axios.js`** with the real client:
-   - `axios.create({ baseURL: import.meta.env.VITE_API_URL })`. The boilerplate's commented version hardcodes `http://localhost:8000/api`; using the env var is better.
-   - **Request interceptor:** attach `Authorization: Bearer <token>` from `localStorage`.
-   - **Response interceptor:** on `401`, unless the path is `/`, `/login` or `/register`, remove `token` and `user` from `localStorage` and redirect to `/login`.
-3. **Delete `src/utils/mockData.js`.**
+One pre-existing UI quirk observed, not caused by the cutover: the "This week %" stat on the dashboard can show briefly stale right after a check-off, then self-corrects on the next render/reload (confirmed in the screenshots — 0% immediately after checking off, correctly 14% after a subsequent login). Worth a look if it bothers you, but out of scope for the cutover itself.
 
-Do this only after the backend endpoints below exist and are tested.
+## The cutover (two changes made)
+
+1. **`.env`** in the frontend: `VITE_API_URL=http://localhost:8000/api` (already set; no change needed). Vite was restarted to pick up the swap.
+2. **Replaced `src/api/axios.js`** with the real client (as described above).
+3. **Deleted `src/utils/mockData.js`.**
 
 ## API contract the frontend actually uses
 

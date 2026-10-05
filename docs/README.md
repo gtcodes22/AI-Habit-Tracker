@@ -28,9 +28,9 @@ Where the two disagree, **the frontend code wins**, because it is what will call
 
 ## Status legend
 
-Docs describing the backend use these markers, since the backend is still being built:
+Docs describing the backend use these markers from when it was still being built:
 
 - **Built**: exists in the repo and works.
 - **Planned**: specified in the docs, not yet written.
 
-See the [Development Roadmap](development-roadmap.md) for the current state.
+**As of 2026-10-05, all 7 build phases are complete** — backend built and tested, frontend cut over to it. See the [Development Roadmap](development-roadmap.md) for how each phase was verified, and [Ideas & Future Development](ideas.md) for what's next.

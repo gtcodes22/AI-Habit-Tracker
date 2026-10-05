@@ -4,6 +4,15 @@ All notable changes to this project are recorded here. Format loosely follows [K
 
 ## [Unreleased]
 
+### 2026-10-05 (5)
+
+#### Changed
+- **Frontend cutover** (Phase 7): `src/api/axios.js` replaced with a real axios client (base URL from `VITE_API_URL`, JWT request interceptor, 401 response interceptor); `src/utils/mockData.js` deleted. The frontend now talks to the real backend end to end.
+
+#### Verified
+- Drove the real, running app with Playwright (not just read through the code): registered a fresh account, confirmed an empty dashboard (not stale mock data), created a habit, checked it off (confetti fired, stats/streak/weekly-grid updated), visited Habits/Weekly/Insights/Stats (all rendered correctly, zero console or page errors), logged out and back in, and confirmed the habit persisted through the real backend. 11/11 scripted checks passed, with screenshots reviewed at each step. The disposable test account (and one leftover from an earlier failed test run) were both found and removed from the database afterward.
+- Noted one pre-existing, unrelated UI quirk: the dashboard's "This week %" stat can show briefly stale immediately after a check-off, correcting itself on the next render. Not caused by this cutover.
+
 ### 2026-10-05 (4)
 
 #### Added
