@@ -2,7 +2,7 @@
 
 Base URL (local): `http://localhost:8000/api`
 
-**Status:** `/health`, `/auth/*`, `/habits/*` and `/logs/*` are **built and tested**. The `/ai` endpoints are still **planned**. This document is the target contract, verified against the frontend's actual calls (see [Frontend Integration](frontend-integration.md)).
+**Status:** every endpoint below is **built**. `/health`, `/auth/*`, `/habits/*` and `/logs/*` are fully **tested**; `/ai/*` is tested for validation and two of five features confirmed with a live Gemini call (see the AI section below for which). This document is the target contract, verified against the frontend's actual calls (see [Frontend Integration](frontend-integration.md)).
 
 ## Conventions
 
@@ -182,4 +182,12 @@ Response: `{ content }`, answered from the user's habits, 30-day logs and per-we
 ### `GET /ai/morning`
 Response: `{ content }`: 30–60 words mentioning real habits and streaks.
 
-If `GEMINI_API_KEY` is not set, AI endpoints return a friendly "AI features are disabled" placeholder rather than failing.
+If `GEMINI_API_KEY` is not set, AI endpoints return a friendly "AI features are currently unavailable" placeholder rather than failing.
+
+**Implementation notes (verified):**
+- The default model is `gemini-3.8-flash` (overridable via `GEMINI_MODEL`). **`gemini-2.5-flash` no longer works for new API keys** — Google's API returns a 404 pointing at the replacement. If this happens again later, check Google AI Studio for the current model name.
+- `chatCompletion()` retries once on a transient error (429 rate limit, 503 overload), honoring the server's suggested `retryDelay` when one is given.
+- The Gemini **free tier is capped at 5 requests/minute per model** — expect `429 RESOURCE_EXHAUSTED` under rapid repeated testing; it clears on its own after the window resets.
+- `suggest-habits` is designed to **never fail the user**: a Gemini outage, a rate limit, *and* malformed JSON all fall back to the same three hard-coded `DEFAULT_SUGGESTIONS`. This was verified by reproducing a live outage and confirming a `200` with the fallback content, rather than an error.
+- Every suggestion (model-generated or fallback) is passed through `sanitizeSuggestion()`, which coerces `category`/`frequency` to valid values — so accepting a suggestion can never fail `POST /habits`' validation.
+- `GET /ai/weekly-report` and `POST /ai/chat` were confirmed with live Gemini calls, producing on-topic, well-grounded output (real habit names, specific numbers, no markdown headers as instructed). `recovery-plan` and `morning` share the same code path but were not confirmed with a live call — Gemini was under sustained load during testing.

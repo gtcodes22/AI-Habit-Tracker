@@ -4,6 +4,24 @@ All notable changes to this project are recorded here. Format loosely follows [K
 
 ## [Unreleased]
 
+### 2026-10-05 (3)
+
+#### Added
+- **AI integration** (Phase 5):
+  - `models/AIInsight.js`: persists every AI response (type, content, meta, generatedAt).
+  - `utils/aiService.js`: lazy Gemini client (`@google/genai`), the five tuned system prompts, `parseJSON()` (strips markdown fences), `chatCompletion()` with retry/backoff, `sanitizeSuggestion()` and `DEFAULT_SUGGESTIONS`.
+  - `controllers/aiController.js` + `routes/ai.js`, mounted at `/api/ai`: `POST /weekly-report`, `POST /suggest-habits`, `POST /recovery-plan`, `POST /chat`, `GET /morning` — each builds its context from real `Habit`/`HabitLog` data (last 7 days for the weekly report, last 30 days plus a per-weekday breakdown for chat, full streak history for the recovery plan and morning message).
+
+#### Fixed
+- **`gemini-2.5-flash` no longer works for new API keys.** Discovered via a live 404 from Google's API; updated both the `.env` `GEMINI_MODEL` value and the code's fallback default to `gemini-3.8-flash`.
+- `chatCompletion()` now retries once on a transient error (429/503), honoring the server's suggested `retryDelay` when the API provides one, instead of a blind fixed backoff.
+- **`suggest-habits`' fallback only covered malformed JSON, not an outright API failure.** Found by reproducing a real Gemini 503 outage live: the endpoint returned a 500-ish error instead of the intended `DEFAULT_SUGGESTIONS` fallback. Widened the `try/catch` in `getSuggestions` to cover both failure modes; re-verified live that an outage now correctly returns `200` with the fallback suggestions.
+
+#### Verified
+- 11 validation/unit checks, free of any Gemini call: `parseJSON` fence-stripping, `sanitizeSuggestion` coercing invalid category/frequency to valid defaults, `DEFAULT_SUGGESTIONS` shape, and auth/input-validation 400s and 401s/404s on all five routes.
+- Live Gemini calls (kept deliberately minimal, given free-tier rate limits hit during testing): `weekly-report` and `chat` both succeeded, producing on-topic, well-grounded output matching their prompts (real habit names, specific numbers/days, no markdown headers). `suggest-habits` was exercised against a real outage and correctly fell back to `DEFAULT_SUGGESTIONS`. `recovery-plan` and `morning` share identical code paths to the endpoints that succeeded but were not individually confirmed with a live call.
+- All test users, habits, logs and AI insights were removed afterward; the pre-existing real account was left untouched (confirmed via a final DB count).
+
 ### 2026-10-05 (2)
 
 #### Added

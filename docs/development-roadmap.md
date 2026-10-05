@@ -10,7 +10,7 @@ Last updated: 2026-09-20
 | Frontend housekeeping (`.gitignore`, `.env`, dependency audit) | **Done** |
 | Backend `package.json` and dependencies | **Done**: 180 packages, 0 vulnerabilities |
 | Backend `.gitignore` | **Done** |
-| Backend source code | **In progress**: Phases 1–4 (server foundation, auth, habits, logs & stats) done and tested; Phases 5–6 not started |
+| Backend source code | **In progress**: Phases 1–5 (server foundation, auth, habits, logs & stats, AI) done and tested; Phase 6 not started |
 | Frontend → backend cutover | **Not started** |
 | Documentation | **Done** (this folder) |
 
@@ -51,11 +51,17 @@ Follow this order. Each step should be tested before the next begins.
 - [ ] `currentWeekKeys()` is written but not yet used by any endpoint — the weekly grid currently derives its own ranges from `/logs/range` on the frontend. Revisit only if a backend-driven weekly endpoint is needed later.
 
 ### Phase 5: AI
-- [ ] `models/AIInsight.js`
-- [ ] `utils/aiService.js` (lazy client, `parseJSON`, `chatCompletion`, five prompts)
-- [ ] `controllers/aiController.js` (weekly, suggestions, recovery, chat, morning)
-- [ ] `routes/ai.js` (paths: `weekly-report`, `suggest-habits`, `recovery-plan`, `chat`, `morning`) and mount
-- [ ] **Test:** each endpoint with real data; check `aiinsights` collection
+- [x] `models/AIInsight.js`
+- [x] `utils/aiService.js` (lazy client, `parseJSON`, `chatCompletion` with retry/backoff, five prompts, `sanitizeSuggestion`, `DEFAULT_SUGGESTIONS`)
+- [x] `controllers/aiController.js` (weekly, suggestions, recovery, chat, morning)
+- [x] `routes/ai.js` (paths: `weekly-report`, `suggest-habits`, `recovery-plan`, `chat`, `morning`) and mount
+- [x] **Test:** validation paths (23 checks, free — no Gemini calls), plus live Gemini calls for weekly-report, suggest-habits and chat *(done 2026-10-05)*
+- [ ] `recovery-plan` and `morning` were not confirmed with a live call (Gemini was under sustained "high demand" / 503s during testing); their code is structurally identical to weekly-report and chat, which did succeed live. Worth a quick manual check in Thunder Client once Gemini is stable.
+
+**Real-world findings from this phase** (useful context, not just a checklist):
+- **`gemini-2.5-flash` is no longer available to new API keys.** Google's own 404 pointed to `gemini-3.8-flash`; both the `.env` value and the code's fallback default were updated to match. If you see "model ... is no longer available" again in the future, check Google AI Studio for the current recommended model name.
+- **The free tier is rate-limited to 5 requests/minute per model.** Rapid back-to-back test runs tripped this (`429 RESOURCE_EXHAUSTED`). `chatCompletion` now honors the server's suggested `retryDelay` instead of guessing.
+- **A live outage surfaced a real gap**: `suggest-habits`' fallback to `DEFAULT_SUGGESTIONS` originally only covered *malformed JSON* from the model, not an outright API failure (e.g. a 503). Widened the `try/catch` in `getSuggestions` to cover both — confirmed fixed by reproducing the outage live and watching it fall back to `DEFAULT_SUGGESTIONS` with a `200` instead of erroring.
 
 ### Phase 6: Seed script
 - [ ] `scripts/seed.js`: demo user, 8 habits, about 500 logs over 90 days, deterministic patterns
