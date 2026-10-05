@@ -4,6 +4,20 @@ All notable changes to this project are recorded here. Format loosely follows [K
 
 ## [Unreleased]
 
+### 2026-10-05
+
+#### Added
+- **Habits** (Phase 3):
+  - `models/Habit.js`: schema with the capitalized category enum (`CATEGORIES`, matching the frontend exactly) and frequency enum (`FREQUENCIES`).
+  - `models/HabitLog.js`: built early (originally scoped to Phase 4) because habit deletion needs it for the cascade; unique compound index on `(userId, habitId, completedDate)`.
+  - `controllers/habitController.js` and `routes/habits.js`: `GET /api/habits` (with `includeArchived`), `POST /api/habits`, `PUT /api/habits/:id`, `PUT /api/habits/:id/archive`, `DELETE /api/habits/:id` (cascades to that habit's logs), `PUT /api/habits/reorder`.
+  - Validation on category, frequency, `targetDays` (1–7) and `color` (hex); malformed or unknown `:id` returns 404 instead of a 500 crash.
+  - Mounted at `/api/habits` in `server.js`.
+
+#### Verified
+- 18 endpoint checks against a live server and the Atlas database: auth requirement, empty list, create validation (missing name, bad category, bad `targetDays`, bad color), successful creates with correct `order`, list ordering, update (success and validation failure), not-found and malformed-id handling, archive toggle, `includeArchived` filtering, reorder (success and bad body), and the cascade delete (a log was created on a habit, the habit was deleted, and the log was confirmed gone afterward).
+- Test habits, logs and the throwaway test user were removed afterward; the pre-existing real account was left untouched.
+
 ### 2026-09-21
 
 #### Added

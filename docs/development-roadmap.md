@@ -10,7 +10,7 @@ Last updated: 2026-09-20
 | Frontend housekeeping (`.gitignore`, `.env`, dependency audit) | **Done** |
 | Backend `package.json` and dependencies | **Done**: 180 packages, 0 vulnerabilities |
 | Backend `.gitignore` | **Done** |
-| Backend source code | **In progress**: Phase 1 (server foundation) and Phase 2 (authentication) done and tested; Phases 3–6 not started |
+| Backend source code | **In progress**: Phases 1–3 (server foundation, auth, habits) done and tested; Phases 4–6 not started |
 | Frontend → backend cutover | **Not started** |
 | Documentation | **Done** (this folder) |
 
@@ -35,14 +35,15 @@ Follow this order. Each step should be tested before the next begins.
 - [ ] Optional: confirm the bcrypt hash is stored in Atlas by registering a real account and viewing the `users` collection
 
 ### Phase 3: Habits
-- [ ] `models/Habit.js` (capitalized category enum)
-- [ ] `controllers/habitController.js` (list, create, update, delete **with log cascade**, archive toggle, reorder)
-- [ ] `routes/habits.js` (`/reorder` before `/:id`) and mount
-- [ ] **Test:** create, list, update, archive, `includeArchived`, delete
+- [x] `models/Habit.js` (capitalized category enum, exported as `CATEGORIES`)
+- [x] `models/HabitLog.js` (brought forward from Phase 4; only the schema was needed here, for the cascade delete)
+- [x] `controllers/habitController.js` (list, create, update, delete **with log cascade**, archive toggle, reorder)
+- [x] `routes/habits.js` (`/reorder` before `/:id/archive` before `/:id`) and mount
+- [x] **Test:** create, list, update, archive, `includeArchived`, delete, reorder, cascade delete, malformed-id handling *(done 2026-10-05: 18 checks passed against live Atlas; test data cleaned up)*
 
 ### Phase 4: Logs and stats
 - [ ] `utils/dateHelpers.js` (`toDateKey`, `todayKey`, `last90Days`, `currentWeekKeys`, `lastNDays`, `calcStreak`)
-- [ ] `models/HabitLog.js` (unique compound index)
+- [x] `models/HabitLog.js` (unique compound index) — built early, in Phase 3, for cascade delete
 - [ ] `controllers/logController.js` (mark, unmark, today, range, heatmap, stats, per-habit stats)
 - [ ] `routes/logs.js` (`/stats` before `/stats/:habitId`) and mount
 - [ ] Return `/logs/stats` as `{ perHabit, days }`

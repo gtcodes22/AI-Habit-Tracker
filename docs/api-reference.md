@@ -2,7 +2,7 @@
 
 Base URL (local): `http://localhost:8000/api`
 
-**Status:** `/health` and `/auth/*` are **built and tested**. The `/habits`, `/logs` and `/ai` endpoints are still **planned**. This document is the target contract, verified against the frontend's actual calls (see [Frontend Integration](frontend-integration.md)).
+**Status:** `/health`, `/auth/*` and `/habits/*` are **built and tested**. The `/logs` and `/ai` endpoints are still **planned**. This document is the target contract, verified against the frontend's actual calls (see [Frontend Integration](frontend-integration.md)).
 
 ## Conventions
 
@@ -88,10 +88,14 @@ Toggles `isArchived`. No body. Response: the updated habit. The frontend reads `
 Response: `{ message }`. **Must also delete all logs for the habit** (cascade).
 
 ### `PUT /habits/reorder`
-Body: array of habit IDs in the desired order; sets each habit's `order`.
-Declare this **before** `/:id`. *The current frontend does not call this endpoint.*
+Body: `{ order: [habitId, habitId, ...] }`, an array of habit IDs in the desired order; sets each habit's `order` to its index in the array. IDs that don't belong to the caller are silently skipped (scoped by `userId`), not an error. Declared **before** `/:id` in the route file. *The current frontend does not call this endpoint.*
 
-**Habit object:** `{ _id, userId, name, description, category, frequency, targetDays, color, icon, isArchived, order, createdAt, updatedAt }`
+**Habit object:** `{ _id, userId, name, description, category, frequency, targetDays, color, icon, isArchived, order, createdAt, updatedAt }` (plus Mongoose's `__v`).
+
+**Implementation notes (verified):**
+- `category` is rejected with `400` unless it's one of the nine capitalized values; `frequency` must be `daily` or `weekly`; `targetDays` must be an integer 1–7; `color` must match `#rrggbb`.
+- A malformed or unknown habit `:id` returns `404 "Habit not found"`, not a 500.
+- `DELETE /habits/:id` also deletes every `HabitLog` for that habit (cascade), verified by creating a log then deleting its habit and confirming the log is gone.
 
 ---
 
