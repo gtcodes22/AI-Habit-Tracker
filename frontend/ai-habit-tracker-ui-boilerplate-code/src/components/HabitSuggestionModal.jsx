@@ -11,6 +11,7 @@ export default function HabitSuggestionModal({ open, onClose, onAccept }) {
   const [suggestions, setSuggestions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [added, setAdded] = useState({});
+  const [error, setError] = useState("");
 
   const reset = () => {
     setStep(0);
@@ -19,6 +20,7 @@ export default function HabitSuggestionModal({ open, onClose, onAccept }) {
     setStruggles("");
     setSuggestions([]);
     setAdded({});
+    setError("");
   };
 
   const close = () => {
@@ -28,6 +30,7 @@ export default function HabitSuggestionModal({ open, onClose, onAccept }) {
 
   const submit = async () => {
     setLoading(true);
+    setError("");
     try {
       const res = await api.post("/ai/suggest-habits", {
         goals,
@@ -36,6 +39,10 @@ export default function HabitSuggestionModal({ open, onClose, onAccept }) {
       });
       setSuggestions(res.data.suggestions || []);
       setStep(3);
+    } catch (e) {
+      setError(
+        e.response?.data?.message || "Couldn't get suggestions right now. Please try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -122,6 +129,11 @@ export default function HabitSuggestionModal({ open, onClose, onAccept }) {
               autoFocus
             />
           </div>
+          {error && (
+            <div className="text-sm text-rose-500 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
+              {error}
+            </div>
+          )}
           <div className="flex justify-between gap-2">
             <button className="btn-ghost" onClick={() => setStep(1)}>
               Back

@@ -12,6 +12,11 @@ export default function StreakRecoveryCard({ habit, onDismiss }) {
     try {
       const res = await api.post("/ai/recovery-plan", { habitId: habit._id });
       setContent(res.data.content);
+    } catch (e) {
+      setContent(
+        e.response?.data?.message ||
+          "Something went wrong generating your recovery plan. Please try again."
+      );
     } finally {
       setLoading(false);
     }

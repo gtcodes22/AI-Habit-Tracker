@@ -22,6 +22,12 @@ export default function MorningMotivation() {
         setContent(res.data.content);
         localStorage.setItem("morning-seen", today);
       })
+      .catch((e) => {
+        // Show the real reason (e.g. the rate-limit explanation) rather
+        // than silently disappearing — this card otherwise renders nothing
+        // when content is empty.
+        setContent(e.response?.data?.message || "");
+      })
       .finally(() => setLoading(false));
   }, [user?.morningMotivation]);
 

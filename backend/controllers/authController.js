@@ -1,5 +1,8 @@
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import { encrypt, encryptionConfigured } from "../utils/crypto.js";
+
+const AI_PROVIDERS = ["gemini", "ollama", "claude", "openai"];
 
 const signToken = (id) =>
     jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -95,7 +98,21 @@ export const getMe = (req, res) => {
 // PUT /api/auth/profile  (protected)
 export const updateProfile = async (req, res, next) => {
     try {
-        const { name, morningMotivation, aiProvider, aiModel } = req.body;
+        const {
+            name,
+            morningMotivation,
+            aiProvider,
+            geminiModel,
+            ollamaModel,
+            anthropicModel,
+            openaiModel,
+            ollamaBaseUrl,
+            geminiApiKey,
+            anthropicApiKey,
+            openaiApiKey,
+            aiRateLimitEnabled,
+            aiRateLimitPerMinute,
+        } = req.body;
 
         if (name !== undefined && (typeof name !== "string" || !name.trim())) {
             return res.status(400).json({ message: "Name cannot be empty" });
@@ -108,16 +125,62 @@ export const updateProfile = async (req, res, next) => {
                 .status(400)
                 .json({ message: "morningMotivation must be true or false" });
         }
+        if (aiProvider !== undefined && !AI_PROVIDERS.includes(aiProvider)) {
+            return res
+                .status(400)
+                .json({ message: `aiProvider must be one of: ${AI_PROVIDERS.join(", ")}` });
+        }
+        const MODEL_FIELDS = { geminiModel, ollamaModel, anthropicModel, openaiModel };
+        for (const [field, value] of Object.entries(MODEL_FIELDS)) {
+            if (value !== undefined && typeof value !== "string") {
+                return res.status(400).json({ message: `${field} must be a string` });
+            }
+        }
+        if (ollamaBaseUrl !== undefined) {
+            if (typeof ollamaBaseUrl !== "string") {
+                return res.status(400).json({ message: "ollamaBaseUrl must be a string" });
+            }
+            if (ollamaBaseUrl.trim() && !/^https?:\/\/.+/i.test(ollamaBaseUrl.trim())) {
+                return res
+                    .status(400)
+                    .json({ message: "ollamaBaseUrl must start with http:// or https://" });
+            }
+        }
+        if (geminiApiKey !== undefined && typeof geminiApiKey !== "string") {
+            return res.status(400).json({ message: "geminiApiKey must be a string" });
+        }
+        if (anthropicApiKey !== undefined && typeof anthropicApiKey !== "string") {
+            return res.status(400).json({ message: "anthropicApiKey must be a string" });
+        }
+        if (openaiApiKey !== undefined && typeof openaiApiKey !== "string") {
+            return res.status(400).json({ message: "openaiApiKey must be a string" });
+        }
+        // A non-empty key can only be saved if the server can encrypt it.
+        // An empty string (clearing a key) is always allowed.
+        const anyKeyBeingSet =
+            (geminiApiKey && geminiApiKey.trim()) ||
+            (anthropicApiKey && anthropicApiKey.trim()) ||
+            (openaiApiKey && openaiApiKey.trim());
+        if (anyKeyBeingSet && !encryptionConfigured()) {
+            return res.status(500).json({
+                message: "Server is not configured to store API keys (ENCRYPTION_KEY missing)",
+            });
+        }
         if (
-            aiProvider !== undefined &&
-            !["gemini", "ollama"].includes(aiProvider)
+            aiRateLimitEnabled !== undefined &&
+            typeof aiRateLimitEnabled !== "boolean"
         ) {
             return res
                 .status(400)
-                .json({ message: "aiProvider must be 'gemini' or 'ollama'" });
+                .json({ message: "aiRateLimitEnabled must be true or false" });
         }
-        if (aiModel !== undefined && typeof aiModel !== "string") {
-            return res.status(400).json({ message: "aiModel must be a string" });
+        if (aiRateLimitPerMinute !== undefined) {
+            const n = Number(aiRateLimitPerMinute);
+            if (!Number.isInteger(n) || n < 1 || n > 60) {
+                return res
+                    .status(400)
+                    .json({ message: "aiRateLimitPerMinute must be an integer between 1 and 60" });
+            }
         }
 
         const user = await User.findById(req.user._id);
@@ -135,8 +198,32 @@ export const updateProfile = async (req, res, next) => {
         if (aiProvider !== undefined) {
             user.aiProvider = aiProvider;
         }
-        if (aiModel !== undefined) {
-            user.aiModel = aiModel.trim();
+        if (geminiModel !== undefined) user.geminiModel = geminiModel.trim();
+        if (ollamaModel !== undefined) user.ollamaModel = ollamaModel.trim();
+        if (anthropicModel !== undefined) user.anthropicModel = anthropicModel.trim();
+        if (openaiModel !== undefined) user.openaiModel = openaiModel.trim();
+        if (ollamaBaseUrl !== undefined) user.ollamaBaseUrl = ollamaBaseUrl.trim();
+        // An empty string clears the saved key; a non-empty one replaces
+        // it (encrypted); undefined (the field wasn't sent) leaves it as is
+        // — so saving other settings never silently wipes a stored key.
+        if (geminiApiKey !== undefined) {
+            user.geminiApiKeyEncrypted = geminiApiKey.trim() ? encrypt(geminiApiKey.trim()) : "";
+        }
+        if (anthropicApiKey !== undefined) {
+            user.anthropicApiKeyEncrypted = anthropicApiKey.trim()
+                ? encrypt(anthropicApiKey.trim())
+                : "";
+        }
+        if (openaiApiKey !== undefined) {
+            user.openaiApiKeyEncrypted = openaiApiKey.trim()
+                ? encrypt(openaiApiKey.trim())
+                : "";
+        }
+        if (aiRateLimitEnabled !== undefined) {
+            user.aiRateLimitEnabled = aiRateLimitEnabled;
+        }
+        if (aiRateLimitPerMinute !== undefined) {
+            user.aiRateLimitPerMinute = Number(aiRateLimitPerMinute);
         }
 
         await user.save();

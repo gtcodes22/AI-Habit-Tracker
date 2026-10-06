@@ -1,11 +1,26 @@
 import { GoogleGenAI } from "@google/genai";
+import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { CATEGORIES, FREQUENCIES } from "../models/Habit.js";
 
-// Lazily create the client — and only if a key is configured — so the
-// server boots fine without GEMINI_API_KEY, and AI features degrade
-// gracefully instead of crashing the rest of the app.
+// Lazily create the shared server-wide client — only if a key is
+// configured AND the owner has explicitly opted into letting anonymous
+// users spend it (GEMINI_SHARED_KEY_ENABLED, default false). This is the
+// one choke point every caller that might fall back to the shared key goes
+// through (chatCompletionGemini with no personal key, and testConnection's
+// gemini branch with no personal key) — so gating it here, once, is enough
+// to guarantee no live request against the shared key happens without that
+// explicit opt-in, regardless of which endpoint is asking.
+//
+// This is a UX/frequency safeguard, not a spend guarantee on its own — the
+// actual guarantee that the shared key can never cost money is not
+// attaching a billing account to it at the provider level. Keep it that
+// way; treat this switch as "don't even burn the free quota," not as
+// financial protection by itself.
 let client = null;
+const SHARED_KEY_ENABLED = process.env.GEMINI_SHARED_KEY_ENABLED === "true";
 const getClient = () => {
+    if (!SHARED_KEY_ENABLED) return null;
     if (client) return client;
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return null;
@@ -13,21 +28,32 @@ const getClient = () => {
     return client;
 };
 
-// "gemini" (default) or "ollama". Lets the backend run entirely on a local
-// model with no API key — see docs/ideas.md for the design notes.
+// "gemini" (default), "ollama", "claude" or "openai". Lets the backend run
+// entirely on a local model with no API key, or let a user bring their own
+// Claude/ChatGPT key — see docs/ideas.md for the design notes.
 export const PROVIDER = process.env.AI_PROVIDER || "gemini";
 
 export const MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 export const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
 export const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "gemma2:9b";
+// Claude/OpenAI have no server-wide key — they're always per-user (bring
+// your own key) — so only the default *model* is server-configurable.
+export const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
+export const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.4-mini";
+
+const DEFAULT_MODEL_FOR = {
+    ollama: OLLAMA_MODEL,
+    claude: ANTHROPIC_MODEL,
+    openai: OPENAI_MODEL,
+    gemini: MODEL,
+};
 
 // The provider/model actually in use for a call — same resolution
 // chatCompletion() does — for the caller to record alongside an AIInsight
 // (so results can be compared across providers/users later).
 export const resolveProviderAndModel = (override = {}) => {
     const provider = override.provider || PROVIDER;
-    const model =
-        override.model || (provider === "ollama" ? OLLAMA_MODEL : MODEL);
+    const model = override.model || DEFAULT_MODEL_FOR[provider] || MODEL;
     return { provider, model };
 };
 
@@ -81,10 +107,13 @@ const getSuggestedDelayMs = (err) => {
     return undefined;
 };
 
-const chatCompletionGemini = async (systemPrompt, userMessage, temperature, model) => {
-    const ai = getClient();
+const chatCompletionGemini = async (systemPrompt, userMessage, temperature, model, apiKey) => {
+    // A user's own key gets a fresh client; otherwise fall back to the
+    // server's shared one (Gemini is the only provider with a server-wide
+    // fallback — Claude/OpenAI have none).
+    const ai = apiKey ? new GoogleGenAI({ apiKey }) : getClient();
     if (!ai) {
-        return "AI features are currently unavailable — ask the app owner to set GEMINI_API_KEY.";
+        return "The app's shared Gemini key isn't available right now — add your own free Gemini key in Settings to use AI features.";
     }
 
     const call = async () => {
@@ -116,10 +145,10 @@ const chatCompletionGemini = async (systemPrompt, userMessage, temperature, mode
 // "unconfigured" isn't a state that applies; a connection failure (the
 // Ollama app/service isn't running) is the equivalent degrade-gracefully
 // case instead.
-const chatCompletionOllama = async (systemPrompt, userMessage, temperature, model) => {
+const chatCompletionOllama = async (systemPrompt, userMessage, temperature, model, baseUrl = OLLAMA_BASE_URL) => {
     let res;
     try {
-        res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+        res = await fetch(`${baseUrl}/api/chat`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -134,7 +163,7 @@ const chatCompletionOllama = async (systemPrompt, userMessage, temperature, mode
         });
     } catch {
         // ECONNREFUSED etc. — the Ollama app/service isn't running.
-        return `AI features are currently unavailable — Ollama isn't reachable at ${OLLAMA_BASE_URL}. Start the Ollama app, or run \`ollama serve\`.`;
+        return `AI features are currently unavailable — Ollama isn't reachable at ${baseUrl}. Start the Ollama app, or run \`ollama serve\`.`;
     }
 
     if (!res.ok) {
@@ -146,22 +175,120 @@ const chatCompletionOllama = async (systemPrompt, userMessage, temperature, mode
     return (data?.message?.content || "").trim();
 };
 
+const MAX_TOKENS = 1024; // generous for a 120-180 word report; small for a chat answer
+
+// Claude and ChatGPT have no server-wide key — they only ever run with a
+// user's own (decrypted) key passed in via `apiKey`. No key means the
+// feature is simply unavailable for that call, same degrade-gracefully
+// treatment as every other provider.
+const chatCompletionClaude = async (systemPrompt, userMessage, temperature, model, apiKey) => {
+    if (!apiKey) {
+        return "AI features are currently unavailable — add your Anthropic API key in Settings.";
+    }
+    const anthropic = new Anthropic({ apiKey });
+    const response = await anthropic.messages.create({
+        model,
+        max_tokens: MAX_TOKENS,
+        system: systemPrompt,
+        temperature,
+        messages: [{ role: "user", content: userMessage }],
+    });
+    return response.content
+        .filter((block) => block.type === "text")
+        .map((block) => block.text)
+        .join("")
+        .trim();
+};
+
+const chatCompletionOpenAI = async (systemPrompt, userMessage, temperature, model, apiKey) => {
+    if (!apiKey) {
+        return "AI features are currently unavailable — add your OpenAI API key in Settings.";
+    }
+    const openai = new OpenAI({ apiKey });
+    const response = await openai.chat.completions.create({
+        model,
+        temperature,
+        messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userMessage },
+        ],
+    });
+    return (response.choices[0]?.message?.content || "").trim();
+};
+
 // Sends one request to the configured AI provider with a system prompt +
 // user message and returns the trimmed text. Falls back to a placeholder
 // when unconfigured/unreachable, rather than throwing. The Gemini path
 // retries briefly on transient errors (rate limits, temporary overload).
 //
 // `override` lets a caller use a specific user's AI preference instead of
-// the server-wide default — pass { provider, model } (either field may be
-// omitted/empty to fall back to the server config for that part).
+// the server-wide default — { provider, model, apiKey, baseUrl }.
+// provider/model may be omitted/empty to fall back to the server config for
+// that part; apiKey is required for claude/openai (there is no server-wide
+// key for those); baseUrl is ollama-only and falls back to OLLAMA_BASE_URL.
 export const chatCompletion = (systemPrompt, userMessage, temperature = 0.7, override = {}) => {
-    const provider = override.provider || PROVIDER;
-    const model =
-        override.model || (provider === "ollama" ? OLLAMA_MODEL : MODEL);
+    const { provider, model } = resolveProviderAndModel(override);
 
-    return provider === "ollama"
-        ? chatCompletionOllama(systemPrompt, userMessage, temperature, model)
-        : chatCompletionGemini(systemPrompt, userMessage, temperature, model);
+    switch (provider) {
+        case "ollama":
+            return chatCompletionOllama(systemPrompt, userMessage, temperature, model, override.baseUrl || OLLAMA_BASE_URL);
+        case "claude":
+            return chatCompletionClaude(systemPrompt, userMessage, temperature, model, override.apiKey);
+        case "openai":
+            return chatCompletionOpenAI(systemPrompt, userMessage, temperature, model, override.apiKey);
+        default:
+            return chatCompletionGemini(systemPrompt, userMessage, temperature, model, override.apiKey);
+    }
+};
+
+// Makes one cheap, minimal call to confirm a provider/key/model actually
+// works, for the Settings UI's "Test connection" button. Never throws —
+// always resolves to { ok, message }.
+export const testConnection = async (provider, { apiKey, model, baseUrl } = {}) => {
+    try {
+        if (provider === "ollama") {
+            const result = await fetchOllamaModels(baseUrl || OLLAMA_BASE_URL);
+            return result.reachable
+                ? { ok: true, message: `Connected — ${result.models.length} model(s) found` }
+                : { ok: false, message: "Can't reach Ollama. Is it running?" };
+        }
+        if (provider === "claude") {
+            if (!apiKey) return { ok: false, message: "Enter an API key first" };
+            const anthropic = new Anthropic({ apiKey });
+            await anthropic.messages.create({
+                model: model || ANTHROPIC_MODEL,
+                max_tokens: 1,
+                messages: [{ role: "user", content: "hi" }],
+            });
+            return { ok: true, message: "Connected" };
+        }
+        if (provider === "openai") {
+            if (!apiKey) return { ok: false, message: "Enter an API key first" };
+            const openai = new OpenAI({ apiKey });
+            await openai.chat.completions.create({
+                model: model || OPENAI_MODEL,
+                max_tokens: 1,
+                messages: [{ role: "user", content: "hi" }],
+            });
+            return { ok: true, message: "Connected" };
+        }
+        if (provider === "gemini") {
+            // Same fallback as chatCompletionGemini: a given key gets a
+            // fresh client, otherwise test the server's shared key.
+            const ai = apiKey ? new GoogleGenAI({ apiKey }) : getClient();
+            if (!ai) {
+                return {
+                    ok: false,
+                    message: "No key to test, and the app's shared key isn't available — enter your own Gemini key first",
+                };
+            }
+            await ai.models.generateContent({ model: model || MODEL, contents: "hi" });
+            return { ok: true, message: "Connected" };
+        }
+        return { ok: false, message: `Unknown provider: ${provider}` };
+    } catch (err) {
+        return { ok: false, message: err.message?.slice(0, 200) || "Connection failed" };
+    }
 };
 
 // Lists the models currently pulled in the local Ollama installation (for a

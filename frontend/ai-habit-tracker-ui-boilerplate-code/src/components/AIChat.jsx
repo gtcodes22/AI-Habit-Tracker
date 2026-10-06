@@ -38,12 +38,13 @@ export default function AIChat() {
         ...m,
         { role: "assistant", content: res.data.content },
       ]);
-    } catch {
+    } catch (e) {
       setMessages((m) => [
         ...m,
         {
           role: "assistant",
-          content: "Sorry, I couldn't answer that right now.",
+          content:
+            e.response?.data?.message || "Sorry, I couldn't answer that right now.",
         },
       ]);
     } finally {

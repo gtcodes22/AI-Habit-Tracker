@@ -2,9 +2,65 @@
 
 All notable changes to this project are recorded here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+Each dated entry below corresponds to exactly one commit (noted inline, e.g. "commit `9f1f300`"), except where stated otherwise. See the [Development Roadmap's commit map](development-roadmap.md#commit-map) for the full phase ↔ commit ↔ date cross-reference, including the two early docs-only commits and the initial scaffold.
+
 ## [Unreleased]
 
-### 2026-10-05 (7) — Phase 9: user-managed AI settings
+### 2026-10-06 (2) — Phase 10 extension #3: per-user Ollama connection settings (not yet committed)
+
+#### Added
+- **Per-user Ollama connection URL.** New `ollamaBaseUrl` field on `User` — where this user's own Ollama install lives; empty means "use the server's `OLLAMA_BASE_URL`". Not a secret (Ollama has no auth), so it's always overwritten on save rather than following the API keys' "omit to leave untouched" convention.
+- `aiService.js`: `chatCompletionOllama()` and the `chatCompletion()` dispatcher now accept/forward a `baseUrl` override, same shape as the existing per-call `apiKey` override for the other providers. `GET /api/ai/ollama-models?baseUrl=...` and `POST /api/ai/test-connection` both accept an optional `baseUrl` to test an unsaved address before saving it, falling back to the user's saved value, then the server default.
+- `Sidebar.jsx` Settings modal: the Ollama section gains a server-URL text input, an "install Ollama" link with a `ollama pull <model>` hint for brand-new users, and a status line naming the actual address just tested — addressing that a new user had no way to point the app at their own Ollama install without server-level `.env` access.
+
+#### Fixed
+- **Cross-provider model collision, found while building the above.** `aiModel` was a single field shared across all four providers (Gemini/Ollama/Claude/ChatGPT) — a Claude model name means nothing to Ollama, so switching `aiProvider` in Settings (even just to look at something, then switching back) could silently overwrite a different provider's saved model, since `save()` always sent the one shared field unconditionally. Fixed by splitting it into `geminiModel`/`ollamaModel`/`anthropicModel`/`openaiModel`, matching how the API keys were already split per provider. Both real accounts' pre-existing `aiModel` values were confirmed empty (`""`) before making the change, so nothing was lost.
+
+#### Verified
+- 25 backend checks against a temp server: fresh-user defaults for all five new/changed fields; `ollamaModel`/`ollamaBaseUrl` survive an unrelated provider switch (the exact collision this fixes); `ollamaBaseUrl` format validation (rejects a URL with no `http(s)://` scheme) and empty-string-clears-to-default; both the query-param/body-param override path and the saved-value fallback path on `GET /ai/ollama-models` and `POST /ai/test-connection`; `anthropicModel`/`openaiModel` saved independently with no cross-field bleed.
+- 7 Playwright checks against the real running app: the base URL input and install link render; the status line names the just-typed address after a refresh click; both the provider and the base URL persist across a full page reload; and the specific regression this was meant to fix — switching to Claude and back to Ollama leaves the saved base URL untouched.
+- All test accounts removed afterward; the two real accounts (`alex@timetoprogram.com`, `demo@habittracker.local`) were untouched throughout.
+
+### 2026-10-06 — Phase 10 extension: Gemini BYOK, rate limiter, shared-key gate, static demo (not yet committed)
+
+#### Added
+- **Gemini joins BYOK.** `geminiApiKeyEncrypted`/`hasGeminiKey` on `User`; `chatCompletionGemini()` and `testConnection()`'s gemini branch accept a per-call key, falling back to the server's shared client when none is given. Unlike Claude/OpenAI, a personal Gemini key is optional, not required.
+- **A built-in AI rate limiter**, on by default at 5 requests/minute (`AI_RATE_LIMIT_PER_MINUTE`): `middleware/aiRateLimit.js` + `utils/rateLimiter.js` (in-process rolling window), applied to the five content-generating routes only. A BYOK user can raise/lower (1–60) or disable it for their own key via a new "Advanced" section in Settings, gated behind a freshly-checked "I understand the risk" box every time it's off. Ollama is exempt.
+- **`GEMINI_SHARED_KEY_ENABLED`** (default `false`): gates the single choke point (`getClient()`) every shared-key caller already goes through. While false, no anonymous/no-personal-key user can reach the shared Gemini key at all — not rate-limited, *unreachable*.
+- **The seeded demo account goes fully static.** `utils/demoAIContent.js` reuses the old mock API's sample text (which already matches the seed data's exact habit names and persona) for all five AI features. The demo account makes zero live calls, is exempt from the rate limiter, and skips input validation (always succeeds).
+- All five AI-calling frontend components (`AIWeeklyReport`, `AIChat`, `StreakRecoveryCard`, `HabitSuggestionModal`, `MorningMotivation`) now surface the real backend error message instead of a generic fallback.
+
+#### Fixed
+- **Two frontend components had no error handling at all** (`StreakRecoveryCard`, `HabitSuggestionModal`) — a failure, including the new 429, would leave an infinite loading spinner with zero explanation. Found while verifying this feature's own "keep the user informed" goal; both now show the real message.
+- **A rate-limiter design gap, caught by the test suite itself**: a user's personal enabled/custom-limit preference was being honored even on the *shared* server key, meaning one person's "disable protection" choice could have exposed everyone else sharing that key to going over the real limit. Fixed: personal preferences now only govern a user's own key; the shared key is always limited at the server's default, non-adjustable per-user.
+
+#### Context
+- This extension followed directly from the project owner's review of the first rate-limiter design: a rolling-window limiter controls request *frequency*, not *spend* — real protection on a true free-tier key with no billing attached, but not an actual spending ceiling if that ever changed. The owner's stated goal ("never incur costs without my approval," plus the scalability argument that a shared key's capacity doesn't grow with user count the way BYOK's does) directly motivated `GEMINI_SHARED_KEY_ENABLED` and the move to a fully static demo account. See [Ideas & Future Development](ideas.md) for the full discussion.
+
+#### Verified
+- 13 additional backend checks: the real seeded demo account returns the correct static content for all 5 AI features with zero `AIInsight` documents created and zero rate-limit interference across 8 rapid calls; a fresh real registration with no personal key gets the graceful "shared key isn't available" placeholder instead of a live call; `test-connection` reports the same; a personal key still reaches the real Gemini API regardless of the switch (a real auth rejection came back, not the "shared key off" message), confirming BYOK and the shared-key gate are correctly independent.
+- All test accounts removed afterward; the two real accounts were untouched, and the demo account's pre-existing data (including 6 `AIInsight` records likely from earlier manual exploration, confirmed not created by this session's testing) was left exactly as found.
+
+### 2026-10-05 (8) — Phase 10: Claude/ChatGPT bring-your-own-key (not yet committed)
+
+#### Added
+- `utils/crypto.js`: AES-256-GCM encryption at rest for per-user API keys, keyed by a new `ENCRYPTION_KEY` env var (32-byte hex). Verified: round-trip encrypt/decrypt, tamper detection (an altered ciphertext fails to decrypt rather than silently returning garbage), and a clear thrown error when `ENCRYPTION_KEY` is unset.
+- `models/User.js`: `aiProvider` enum extended to `claude`/`openai`; new `anthropicApiKeyEncrypted`/`openaiApiKeyEncrypted` fields. `toJSON` never serializes them — it exposes only `hasAnthropicKey`/`hasOpenaiKey` booleans, same treatment as `password`.
+- `PUT /api/auth/profile` accepts `anthropicApiKey`/`openaiApiKey`: a non-empty string encrypts and saves it, an empty string clears it, omitting the field leaves an existing key untouched.
+- `utils/aiService.js`: `chatCompletionClaude`/`chatCompletionOpenAI` (new deps `@anthropic-ai/sdk`, `openai`), dispatched from the same `chatCompletion()` as every other provider; both require a per-call `apiKey` (there is no server-wide key for either) and degrade to a friendly "add your API key in Settings" message otherwise. New `ANTHROPIC_MODEL` (default `claude-sonnet-5`) and `OPENAI_MODEL` (default `gpt-5.4-mini`) env vars.
+- `POST /api/ai/test-connection`: validates a provider/key/model combination with one cheap, minimal call (works for `gemini`/`ollama` too) — accepts a freshly typed, not-yet-saved key, or falls back to the user's already-saved one.
+- `Sidebar.jsx` Settings modal: Claude/ChatGPT options — a password-style key field, a "get a key" link, a Test connection button with a live status line, a Remove-saved-key action, and a billing note ("you'll be billed directly by Anthropic/OpenAI").
+
+#### Fixed
+- Found during UI testing, not before shipping: the typed API key wasn't cleared from React state after a successful save, so reopening Settings silently showed the stale typed value in the password field instead of the "key saved" placeholder — meaning the "Remove saved key" control (which only appears when the field is empty) never appeared after saving a key. Fixed by resetting the key input state on save; re-verified. The test itself was also strengthened (checking the actual input value, not just its placeholder attribute) so a regression like this can't pass silently again.
+
+#### Verified
+- 19 backend checks: the raw key is absent from every response at every layer tested (register, profile update, `/auth/me`); the stored DB value is confirmed to be ciphertext (`iv:authTag:ciphertext` shape), not plaintext; validation on bad `aiProvider`/key types; switching providers doesn't wipe a previously saved key; `test-connection` correctly reports failure with no key, an unsaved bad key, or a saved bad key — including one real call to the live Anthropic API with a fake key, which came back with a clean `401 authentication_error`, proving the full request pipeline reaches the real service; an AI feature call with `aiProvider: claude` and no key degrades to the friendly placeholder instead of erroring.
+- 17 Playwright UI checks against the real running app: the Claude/ChatGPT options, key field, test-connection flow (including a real failed test against the live Anthropic API, shown correctly in the UI), the saved-key placeholder and Remove-saved-key flow, and provider independence (switching to ChatGPT doesn't show Claude's saved-key state). Zero console errors.
+- **Known gap:** no real Anthropic or OpenAI API key was available this session, so an actual successful generation was not confirmed — only the full pipeline up to the real API's authentication check (which correctly accepts the pipeline is well-formed and correctly rejects invalid credentials).
+- All test accounts removed afterward; the two real accounts (`alex@timetoprogram.com`, `demo@habittracker.local`) were untouched throughout.
+
+### 2026-10-05 (7) — Phase 9: user-managed AI settings (commit `9f1f300`)
 
 #### Added
 - Per-user AI provider preference, replacing the server-wide-only `AI_PROVIDER` from Phase 8:
@@ -21,7 +77,7 @@ All notable changes to this project are recorded here. Format loosely follows [K
 - One screenshot initially looked visually broken (modal overlapping the sidebar); investigated and confirmed it was a Playwright `fullPage` + `backdrop-blur` capture artifact, not a real bug — a viewport-only screenshot showed a correctly rendered, centered modal.
 - Also discovered, while Ollama was running for this testing: this machine's GPU has 6 GB VRAM (~5 GB available), which explains Phase 8's `gemma2:9b` out-of-memory finding — noted in `docs/ideas.md` as a sizing guide for future local models.
 
-### 2026-10-05 (6) — Phase 8: offline AI via Ollama
+### 2026-10-05 (6) — Phase 8: offline AI via Ollama (commit `9f1f300`, same as Phase 9 above)
 
 #### Added
 - **Ollama support** (from [Ideas & Future Development](ideas.md)): `AI_PROVIDER` env var (`gemini` default, or `ollama`) lets the backend run entirely on a local model, no API key, no internet call. `chatCompletion()` in `utils/aiService.js` now dispatches to a plain `fetch` against Ollama's local HTTP API (`/api/chat`) when selected — no new SDK dependency. Degrades gracefully (a friendly message) if Ollama isn't running, same as the existing "no Gemini key" case.
@@ -36,7 +92,7 @@ All notable changes to this project are recorded here. Format loosely follows [K
 - **`gemma2:9b` (the chosen default) currently fails to load on this machine** with an out-of-memory error (reproduced twice, including with no other model loaded) — a real memory constraint on this machine, not a code defect. **`mistral:latest`** (already available) was confirmed working in ~9 seconds as a drop-in alternative via `OLLAMA_MODEL`, no code change.
 - Two early test attempts that looked like hangs were a red herring: `qwen3.5:4b` and `deepseek-r1:1.5b` are reasoning models whose hidden chain-of-thought was cut off by an overly low `num_predict` cap before any visible answer appeared — not an Ollama or hardware problem. Documented in `docs/ideas.md` and `docs/setup-guide.md`.
 
-### 2026-10-05 (5)
+### 2026-10-05 (5) — Phase 7 (commit `ada3e9e`)
 
 #### Changed
 - **Frontend cutover** (Phase 7): `src/api/axios.js` replaced with a real axios client (base URL from `VITE_API_URL`, JWT request interceptor, 401 response interceptor); `src/utils/mockData.js` deleted. The frontend now talks to the real backend end to end.
@@ -45,7 +101,7 @@ All notable changes to this project are recorded here. Format loosely follows [K
 - Drove the real, running app with Playwright (not just read through the code): registered a fresh account, confirmed an empty dashboard (not stale mock data), created a habit, checked it off (confetti fired, stats/streak/weekly-grid updated), visited Habits/Weekly/Insights/Stats (all rendered correctly, zero console or page errors), logged out and back in, and confirmed the habit persisted through the real backend. 11/11 scripted checks passed, with screenshots reviewed at each step. The disposable test account (and one leftover from an earlier failed test run) were both found and removed from the database afterward.
 - Noted one pre-existing, unrelated UI quirk: the dashboard's "This week %" stat can show briefly stale immediately after a check-off, correcting itself on the next render. Not caused by this cutover.
 
-### 2026-10-05 (4)
+### 2026-10-05 (4) — Phase 6 (commit `9089b8d`)
 
 #### Added
 - **Seed script** (Phase 6): `scripts/seed.js` — a demo user (`demo@habittracker.local` / `Demo1234!`, overridable via `SEED_EMAIL`/`SEED_PASSWORD`) with 7 habits and ~441 logs over the last 90 days, reusing the frontend's existing `mockData.js` habit definitions and deterministic pseudo-random log generator (not the tutorial's spoken "8 habits" — matching the project's own established mock data was the priority). Safe to re-run: wipes and rebuilds the same account by email rather than creating duplicates.
@@ -56,7 +112,7 @@ All notable changes to this project are recorded here. Format loosely follows [K
 - Logged in as the seeded demo user through the real `/api/auth/login` endpoint (not a direct DB check) and confirmed `/api/habits`, `/api/logs/stats` and `/api/logs/heatmap` all return realistic, varied data matching each habit's intended pattern — e.g. a 13-day current streak on the high-probability water habit, a short streak on the drop-off journal habit, and a confirmed 5-day gap with zero logs around the forced broken-streak habit.
 - This demo data was intentionally **not** cleaned up afterward (unlike every other phase's throwaway test data) — it's meant to persist as a standing demo account.
 
-### 2026-10-05 (3)
+### 2026-10-05 (3) — Phase 5 (commit `dd89c2e`)
 
 #### Added
 - **AI integration** (Phase 5):
@@ -74,7 +130,7 @@ All notable changes to this project are recorded here. Format loosely follows [K
 - Live Gemini calls (kept deliberately minimal, given free-tier rate limits hit during testing): `weekly-report` and `chat` both succeeded, producing on-topic, well-grounded output matching their prompts (real habit names, specific numbers/days, no markdown headers). `suggest-habits` was exercised against a real outage and correctly fell back to `DEFAULT_SUGGESTIONS`. `recovery-plan` and `morning` share identical code paths to the endpoints that succeeded but were not individually confirmed with a live call.
 - All test users, habits, logs and AI insights were removed afterward; the pre-existing real account was left untouched (confirmed via a final DB count).
 
-### 2026-10-05 (2)
+### 2026-10-05 (2) — Phase 4 (commit `17b7b13`)
 
 #### Added
 - **Logs & stats** (Phase 4):
@@ -86,7 +142,7 @@ All notable changes to this project are recorded here. Format loosely follows [K
 - 23 endpoint checks against a live server and the Atlas database: auth requirement; mark (success, duplicate-is-idempotent, bad habitId, missing habitId, bad date); today; range (success, missing params → 400); heatmap (90 entries, correct counts at seeded offsets); stats and per-habit stats, with streak numbers hand-calculated in advance and matched exactly; not-found and malformed-id handling for per-habit stats; unmark (success, idempotent re-unmark).
 - Test habits, logs and the throwaway test user were removed afterward; the pre-existing real account was left untouched.
 
-### 2026-10-05
+### 2026-10-05 — Phase 3 (commit `ba81256`)
 
 #### Added
 - **Habits** (Phase 3):
@@ -100,7 +156,7 @@ All notable changes to this project are recorded here. Format loosely follows [K
 - 18 endpoint checks against a live server and the Atlas database: auth requirement, empty list, create validation (missing name, bad category, bad `targetDays`, bad color), successful creates with correct `order`, list ordering, update (success and validation failure), not-found and malformed-id handling, archive toggle, `includeArchived` filtering, reorder (success and bad body), and the cascade delete (a log was created on a habit, the habit was deleted, and the log was confirmed gone afterward).
 - Test habits, logs and the throwaway test user were removed afterward; the pre-existing real account was left untouched.
 
-### 2026-09-21
+### 2026-09-21 — Phases 1 and 2 (commits `0890325` and `ab8a186`; `a467b4b` in between is docs-only)
 
 #### Added
 - **Backend server foundation** (Phase 1): `server.js` (Express, CORS allow-list, JSON parsing, `GET /api/health`, connect-then-listen), `config/db.js`, `middleware/errorHandler.js`. Confirmed running against MongoDB Atlas.
@@ -125,7 +181,7 @@ All notable changes to this project are recorded here. Format loosely follows [K
 - 20 endpoint checks against a live server and the Atlas database, all as expected: health; register validation (missing fields, short password, bad email, operator injection); successful register (201, no password in response, avatar set); duplicate email; login success, wrong password and unknown email (same 401 message), operator injection; `me` with no token, garbage token and valid token; profile update (avatar recomputed) and its validation; login still works after a profile update (password not re-hashed); unknown route returns 404.
 - The throwaway test user was deleted afterward; the `users` collection is empty.
 
-### 2026-09-20
+### 2026-09-20 — initial scaffold (commits `3fb71be` and `5a09745`)
 
 #### Added
 - `docs/` folder with project documentation: overview, architecture, API reference, data models, AI features, setup guide, frontend integration, development roadmap and this changelog.

@@ -9,19 +9,52 @@ import {
     DEFAULT_SUGGESTIONS,
     resolveProviderAndModel,
     fetchOllamaModels,
+    testConnection,
 } from "../utils/aiService.js";
+import { decrypt } from "../utils/crypto.js";
 import { lastNDays, todayKey, calcStreak } from "../utils/dateHelpers.js";
+import { isDemoUser, DEMO_AI_CONTENT, demoChatAnswer } from "../utils/demoAIContent.js";
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 const isCastError = (err) => err.name === "CastError";
 
+const ENCRYPTED_KEY_FIELD = {
+    gemini: "geminiApiKeyEncrypted",
+    claude: "anthropicApiKeyEncrypted",
+    openai: "openaiApiKeyEncrypted",
+};
+
+// Decrypts a user's saved key for the given provider. Returns undefined
+// (not an error) if there's no key, or if decryption fails for any reason
+// (e.g. ENCRYPTION_KEY was rotated) — the caller's degrade-gracefully path
+// already handles "no key" cleanly.
+const getDecryptedKey = (user, provider) => {
+    const field = ENCRYPTED_KEY_FIELD[provider];
+    const encrypted = field && user[field];
+    if (!encrypted) return undefined;
+    try {
+        return decrypt(encrypted);
+    } catch {
+        return undefined;
+    }
+};
+
+const MODEL_FIELD = {
+    gemini: "geminiModel",
+    ollama: "ollamaModel",
+    claude: "anthropicModel",
+    openai: "openaiModel",
+};
+
 // A user's saved AI preference, in the shape chatCompletion()'s override
-// expects. An empty aiModel means "use that provider's server default",
-// so it's dropped rather than passed through as an empty string.
+// expects. An empty model/baseUrl means "use that provider's server
+// default", so they're dropped rather than passed through as "".
 const userOverride = (user) => ({
     provider: user.aiProvider,
-    model: user.aiModel || undefined,
+    model: user[MODEL_FIELD[user.aiProvider]] || undefined,
+    apiKey: getDecryptedKey(user, user.aiProvider),
+    baseUrl: user.aiProvider === "ollama" ? user.ollamaBaseUrl || undefined : undefined,
 });
 
 // Recorded on every AIInsight so results can be compared across
@@ -43,6 +76,11 @@ const groupDatesByHabit = (logs) => {
 // POST /api/ai/weekly-report
 export const getWeeklyReport = async (req, res, next) => {
     try {
+        // The seeded demo account always gets static sample content — no
+        // live provider call, no quota/cost, no rate limit, works even if
+        // every real provider is unconfigured. See utils/demoAIContent.js.
+        if (isDemoUser(req.user)) return res.json({ content: DEMO_AI_CONTENT.weeklyReport });
+
         const habits = await Habit.find({ userId: req.user._id, isArchived: false });
         if (!habits.length) {
             return res.json({
@@ -78,6 +116,8 @@ export const getWeeklyReport = async (req, res, next) => {
 // POST /api/ai/suggest-habits
 export const getSuggestions = async (req, res, next) => {
     try {
+        if (isDemoUser(req.user)) return res.json({ suggestions: DEMO_AI_CONTENT.suggestions });
+
         const { goals, productiveTime, struggles } = req.body;
         if (
             typeof goals !== "string" ||
@@ -128,6 +168,8 @@ export const getSuggestions = async (req, res, next) => {
 // POST /api/ai/recovery-plan
 export const getRecoveryPlan = async (req, res, next) => {
     try {
+        if (isDemoUser(req.user)) return res.json({ content: DEMO_AI_CONTENT.recovery });
+
         const { habitId } = req.body;
         if (typeof habitId !== "string" || !habitId) {
             return res.status(400).json({ message: "habitId is required" });
@@ -159,6 +201,11 @@ export const getRecoveryPlan = async (req, res, next) => {
 // POST /api/ai/chat
 export const getChatAnswer = async (req, res, next) => {
     try {
+        if (isDemoUser(req.user)) {
+            const q = typeof req.body?.question === "string" ? req.body.question : "";
+            return res.json({ content: demoChatAnswer(q) });
+        }
+
         const { question } = req.body;
         if (typeof question !== "string" || !question.trim()) {
             return res.status(400).json({ message: "question is required" });
@@ -209,6 +256,8 @@ export const getChatAnswer = async (req, res, next) => {
 // GET /api/ai/morning
 export const getMorningMotivation = async (req, res, next) => {
     try {
+        if (isDemoUser(req.user)) return res.json({ content: DEMO_AI_CONTENT.morning });
+
         const habits = await Habit.find({ userId: req.user._id, isArchived: false });
         if (!habits.length) {
             return res.json({
@@ -245,12 +294,55 @@ export const getMorningMotivation = async (req, res, next) => {
     }
 };
 
-// GET /api/ai/ollama-models
-// Lists the models currently pulled on the local Ollama install, and
-// doubles as a connectivity check for the Settings UI's "Test connection".
+// GET /api/ai/ollama-models?baseUrl=...
+// Lists the models currently pulled on an Ollama install, and doubles as a
+// connectivity check for the Settings UI. A query baseUrl tests that
+// (unsaved) address directly — lets a user verify a URL before saving it.
+// Otherwise falls back to the user's saved ollamaBaseUrl, then the server
+// default (fetchOllamaModels' own default).
 export const getOllamaModels = async (req, res, next) => {
     try {
-        const result = await fetchOllamaModels();
+        const queryBaseUrl =
+            typeof req.query.baseUrl === "string" && req.query.baseUrl.trim()
+                ? req.query.baseUrl.trim()
+                : undefined;
+        const result = await fetchOllamaModels(queryBaseUrl || req.user.ollamaBaseUrl || undefined);
+        res.json(result);
+    } catch (err) {
+        next(err);
+    }
+};
+
+// POST /api/ai/test-connection
+// Powers the Settings UI's "Test connection" button. If an apiKey/baseUrl is
+// given in the body, tests that (unsaved) value directly — lets a user
+// verify a key or Ollama URL before saving it. Otherwise falls back to the
+// user's already-saved setting for that provider, so re-testing a saved
+// setup works without retyping.
+export const testAIConnection = async (req, res, next) => {
+    try {
+        const { provider, apiKey, model, baseUrl } = req.body;
+        const validProviders = ["gemini", "ollama", "claude", "openai"];
+        if (typeof provider !== "string" || !validProviders.includes(provider)) {
+            return res
+                .status(400)
+                .json({ message: `provider must be one of: ${validProviders.join(", ")}` });
+        }
+        if (model !== undefined && typeof model !== "string") {
+            return res.status(400).json({ message: "model must be a string" });
+        }
+        if (baseUrl !== undefined && typeof baseUrl !== "string") {
+            return res.status(400).json({ message: "baseUrl must be a string" });
+        }
+
+        const keyToTest =
+            typeof apiKey === "string" && apiKey.trim()
+                ? apiKey.trim()
+                : getDecryptedKey(req.user, provider);
+        const baseUrlToTest =
+            typeof baseUrl === "string" && baseUrl.trim() ? baseUrl.trim() : req.user.ollamaBaseUrl || undefined;
+
+        const result = await testConnection(provider, { apiKey: keyToTest, model, baseUrl: baseUrlToTest });
         res.json(result);
     } catch (err) {
         next(err);

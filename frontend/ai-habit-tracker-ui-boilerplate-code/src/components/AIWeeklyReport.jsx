@@ -17,7 +17,7 @@ export default function AIWeeklyReport() {
       setGeneratedAt(new Date());
       setExpanded(true);
     } catch (e) {
-      setContent("Failed to generate report. Please try again.");
+      setContent(e.response?.data?.message || "Failed to generate report. Please try again.");
     } finally {
       setLoading(false);
     }

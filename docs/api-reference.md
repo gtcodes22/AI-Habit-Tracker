@@ -48,16 +48,21 @@ Errors: `401 "Invalid email or password"` (same message for unknown email and wr
 Response `200`: `{ user }`
 
 ### `PUT /auth/profile` (protected)
-Body (all optional): `{ name, morningMotivation }`
+Body (all optional): `{ name, morningMotivation, aiProvider, geminiModel, ollamaModel, anthropicModel, openaiModel, ollamaBaseUrl, geminiApiKey, anthropicApiKey, openaiApiKey, aiRateLimitEnabled, aiRateLimitPerMinute }`
 Response `200`: `{ user }`. If `name` changes, `avatar` is recomputed from it.
 
-**User object:** `{ _id, name, email, avatar, morningMotivation, createdAt, updatedAt }` (plus Mongoose's `__v`). The password is never included. `morningMotivation` defaults to `false`.
+**User object:** `{ _id, name, email, avatar, morningMotivation, aiProvider, geminiModel, ollamaModel, anthropicModel, openaiModel, ollamaBaseUrl, hasGeminiKey, hasAnthropicKey, hasOpenaiKey, aiRateLimitEnabled, aiRateLimitPerMinute, createdAt, updatedAt }` (plus Mongoose's `__v`). The password and all three encrypted key fields are never included — `hasGeminiKey`/`hasAnthropicKey`/`hasOpenaiKey` are booleans only. Defaults: `morningMotivation` `false`, `aiProvider` `"gemini"`, `aiRateLimitEnabled` `true`, `aiRateLimitPerMinute` `5`.
 
 **Implementation notes (verified):**
 - `name`, `email` and `password` (register) and `email` and `password` (login) must be **strings**. Objects such as `{ "$gt": "" }` are rejected with `400`, which blocks NoSQL operator injection.
 - Emails are normalized to lowercase, so `A@B.com` and `a@b.com` are the same account (duplicate register returns `400`).
 - Invalid email format returns `400 "Please provide a valid email address"`.
-- `PUT /auth/profile` validates that `name` is a non-empty string and `morningMotivation` is a boolean.
+- `PUT /auth/profile` validates that `name` is a non-empty string, `morningMotivation` is a boolean, `aiProvider` is one of `gemini`/`ollama`/`claude`/`openai`, `geminiModel`/`ollamaModel`/`anthropicModel`/`openaiModel`/`geminiApiKey`/`anthropicApiKey`/`openaiApiKey` are strings, `ollamaBaseUrl` is a string starting with `http://` or `https://` (when non-empty), `aiRateLimitEnabled` is a boolean, and `aiRateLimitPerMinute` is an integer 1–60.
+- **Each provider has its own model field** (`geminiModel`/`ollamaModel`/`anthropicModel`/`openaiModel`) rather than one shared field — a Claude model name means nothing to Ollama, so these are stored, validated and returned independently and switching `aiProvider` back and forth never overwrites one provider's remembered model with another's.
+- `geminiApiKey`/`anthropicApiKey`/`openaiApiKey`: a **non-empty** string encrypts and saves it; an **empty string** clears it; **omitting the field** leaves an existing key untouched (so saving your display name never silently wipes a saved key). Saving a non-empty key when `ENCRYPTION_KEY` isn't configured on the server returns `500`.
+- `ollamaBaseUrl` isn't a secret (Ollama has no auth), so unlike the API keys it's always overwritten with whatever is sent — an empty string resets it to "use the server's default" (`OLLAMA_BASE_URL`).
+- Switching `aiProvider` away from a provider with a saved key does **not** clear that key — switching back later still works.
+- **`aiRateLimitEnabled`/`aiRateLimitPerMinute` only take effect for a provider where you have your own saved key.** On the shared server-wide Gemini key, these are saved but silently have no effect — the shared key is always limited at the server's own default and can never be adjusted or disabled per-user (see `GET/POST /ai/*` notes below).
 - Token lifetime comes from `JWT_EXPIRES_IN` (default `30d`).
 - Protected routes return `401` with `"Not authorized, no token"` or `"Not authorized, token is invalid or expired"`.
 
@@ -182,12 +187,26 @@ Response: `{ content }`, answered from the user's habits, 30-day logs and per-we
 ### `GET /ai/morning`
 Response: `{ content }`: 30–60 words mentioning real habits and streaks.
 
-If `GEMINI_API_KEY` is not set, AI endpoints return a friendly "AI features are currently unavailable" placeholder rather than failing.
+All five of the above use **the calling user's saved AI preference** (`aiProvider`, that provider's own model field, and for `claude`/`openai`/`gemini`, their saved encrypted key; for `ollama`, their saved `ollamaBaseUrl`) if they've set one in Settings, falling back to the server-wide default (`AI_PROVIDER`, `OLLAMA_BASE_URL`, et al.) otherwise. If the resolved provider is `gemini`/`ollama` and unconfigured/unreachable, or `claude`/`openai` and the user has no key, the endpoint returns a friendly "AI features are currently unavailable" placeholder rather than failing.
+
+### `GET /ai/ollama-models?baseUrl=...`
+Query `baseUrl` (optional string): tests that (unsaved) address directly, so a user can verify a URL in Settings before saving it. Otherwise falls back to the caller's saved `ollamaBaseUrl`, then the server's own `OLLAMA_BASE_URL`.
+Response: `{ reachable: boolean, models: string[] }` — proxies Ollama's own `/api/tags`. `models` is empty when `reachable` is `false`. Doubles as a connectivity check for the Settings UI; never throws.
+
+### `POST /ai/test-connection`
+Body: `{ provider, apiKey?, model?, baseUrl? }`. `provider` is one of `gemini`/`ollama`/`claude`/`openai`. For `claude`/`openai`/`gemini`: if `apiKey` is given, tests that (unsaved) key directly; otherwise falls back to the caller's already-saved key for that provider. For `ollama`: if `baseUrl` is given, tests that (unsaved) address directly; otherwise falls back to the caller's saved `ollamaBaseUrl`. Makes one cheap, minimal call to the real provider.
+Response: `{ ok: boolean, message: string }`. Never throws — a bad key, unreachable Ollama, or any other failure comes back as `{ ok: false, message: "..." }` with `200`, not an error status.
 
 **Implementation notes (verified):**
-- The default model is `gemini-3.8-flash` (overridable via `GEMINI_MODEL`). **`gemini-2.5-flash` no longer works for new API keys** — Google's API returns a 404 pointing at the replacement. If this happens again later, check Google AI Studio for the current model name.
-- `chatCompletion()` retries once on a transient error (429 rate limit, 503 overload), honoring the server's suggested `retryDelay` when one is given.
+- The default Gemini model is `gemini-3.8-flash` (overridable via `GEMINI_MODEL`). **`gemini-2.5-flash` no longer works for new API keys** — Google's API returns a 404 pointing at the replacement. If this happens again later, check Google AI Studio for the current model name.
+- `chatCompletion()` retries once on a transient Gemini error (429 rate limit, 503 overload), honoring the server's suggested `retryDelay` when one is given.
 - The Gemini **free tier is capped at 5 requests/minute per model** — expect `429 RESOURCE_EXHAUSTED` under rapid repeated testing; it clears on its own after the window resets.
-- `suggest-habits` is designed to **never fail the user**: a Gemini outage, a rate limit, *and* malformed JSON all fall back to the same three hard-coded `DEFAULT_SUGGESTIONS`. This was verified by reproducing a live outage and confirming a `200` with the fallback content, rather than an error.
+- `suggest-habits` is designed to **never fail the user**: a provider outage, a rate limit, *and* malformed JSON all fall back to the same three hard-coded `DEFAULT_SUGGESTIONS`. This was verified by reproducing a live Gemini outage and confirming a `200` with the fallback content, rather than an error.
 - Every suggestion (model-generated or fallback) is passed through `sanitizeSuggestion()`, which coerces `category`/`frequency` to valid values — so accepting a suggestion can never fail `POST /habits`' validation.
-- `GET /ai/weekly-report` and `POST /ai/chat` were confirmed with live Gemini calls, producing on-topic, well-grounded output (real habit names, specific numbers, no markdown headers as instructed). `recovery-plan` and `morning` share the same code path but were not confirmed with a live call — Gemini was under sustained load during testing.
+- `GET /ai/weekly-report` and `POST /ai/chat` were confirmed with live Gemini calls, producing on-topic, well-grounded output (real habit names, specific numbers, no markdown headers as instructed). `recovery-plan` and `morning` share the same code path but were not confirmed with a live Gemini call — Gemini was under sustained load during testing.
+- Ollama generation was confirmed live end-to-end through `deepseek-r1:1.5b` (a non-default model, used because the configured default `gemma2:9b` currently OOMs on this machine's GPU — see [Ideas & Future Development](ideas.md)).
+- Claude/OpenAI: the request pipeline (encryption, key resolution, the real API call) was confirmed live — a deliberately invalid key reached the real Anthropic API and was cleanly rejected with `401`. No real key was available to confirm a successful generation.
+- **Gemini is BYOK-optional, unlike Claude/OpenAI**: a user without a personal `geminiApiKey` falls back to the server's shared key — *if* the server owner has enabled it (see below). With a personal key, Gemini behaves exactly like Claude/OpenAI.
+- **`GEMINI_SHARED_KEY_ENABLED` (server `.env`, default `false`):** while unset or `false`, the shared Gemini key is **completely unreachable** — no live request against it happens for any user without their own key, under any circumstance. `POST /ai/weekly-report` etc. return `200` with a placeholder explaining this; `POST /ai/test-connection` returns `{ ok: false, message: "..." }` the same way. A user's own key is entirely unaffected by this switch.
+- **Built-in rate limit:** the five content-generating routes (not `/ollama-models` or `/test-connection`) are capped at `aiRateLimitPerMinute` (default `5`) per minute. Exceeding it returns `429` with `{ message, retryAfterSeconds }` rather than attempting the provider call. Ollama is exempt (no cost/quota concern). **Scoping matters:** a user's own key is limited per-user, using their own `aiRateLimitEnabled`/`aiRateLimitPerMinute`; the shared server key is limited **globally across everyone using it**, always at the server's own default, and a user's personal preference has no effect on that shared bucket — verified by seeding one bucket from one user and confirming a second user sharing it was immediately affected, and, separately, confirming a shared-key user's own customized limit was silently ignored in favor of the server default.
+- **The seeded demo account (`demo@habittracker.local`, or whatever `SEED_EMAIL` is set to) never makes a live call at all.** All five endpoints return fixed sample content from `utils/demoAIContent.js`, are exempt from the rate limiter, and skip input validation entirely (always succeed) — so a visitor exploring the demo can't hit an error or a rate limit no matter what they click.

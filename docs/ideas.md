@@ -36,7 +36,7 @@ A running backlog of ideas that are **not** part of the current scope. Nothing h
 
 ### Support multiple AI providers (Claude, local models via Ollama)
 - **Added:** 2026-09-20
-- **Status:** Ollama support **shipped** (Phase 8: provider plumbing, 2026-10-05; Phase 9: per-user settings + live model picker, 2026-10-05). Claude/ChatGPT (user-supplied API keys) not started — see the BYOK design below.
+- **Status:** All four providers **shipped**, and all three cloud providers now support bring-your-own-key: Gemini (original + optional BYOK), Ollama (Phase 8: provider plumbing; Phase 9: per-user settings + live model picker; Phase 10 extension #3: per-user connection URL, independent per-provider model fields), Claude/ChatGPT (Phase 10: encrypted bring-your-own-key, required since neither has a server-wide key). A built-in AI request rate limiter (5/min default, on by default) also shipped as part of Phase 10. Built and tested 2026-10-05 through 2026-10-06, not yet committed. See the BYOK write-up below for what's still unverified.
 - **Summary:** The project currently uses only Google Gemini. Let the backend use other models too: Anthropic Claude, and local models served by Ollama, alongside or instead of Gemini.
 - **Why:** Avoid lock-in to one vendor, compare answer quality per feature, control cost, and (with Ollama) keep habit data on the user's own machine.
 - **Where it fits today:** All Gemini-specific code is meant to live in one file, `backend/utils/aiService.js`, behind a single function, `chatCompletion(system, user, temperature)`. The five AI controllers only call that function. So this idea is mostly a change *inside* `aiService.js`, not a rewrite of the features. See [AI Features](ai-features.md).
@@ -91,22 +91,77 @@ What Phase 8 added at the server level, Phase 9 moved into the app itself — ea
 
 ---
 
-### Next (not yet started): "Bring Your Own Key" — Claude and ChatGPT
+### Phase 10 (built 2026-10-05, not yet committed): "Bring Your Own Key" — Claude and ChatGPT
 
 Lets a non-technical user add Claude or ChatGPT by pasting their own API key into Settings — no `.env`, no restart — and from then on the app uses their key, their provider, their chosen model.
 
-**What it needs, beyond what Phase 9 already built:**
+**What it needed, beyond what Phase 9 already built — all four delivered as planned:**
 
-1. **Two more providers in `aiService.js`**, same shape as Ollama: `@anthropic-ai/sdk` for Claude, `openai` for ChatGPT. Each is one function; the five AI controllers don't change.
-2. **Encryption at rest — the one genuinely new piece of infrastructure.** A per-user API key must never be stored in plain text (MongoDB backups, logs, or anyone with DB read access would otherwise see a live, billable credential). Plan: a server-side `ENCRYPTION_KEY` in `.env`, AES-256-GCM via Node's built-in `crypto` (no new dependency), decrypt only at the moment of calling the provider, strip the encrypted field from any `GET /auth/me` response the same way `password` already is — the client should only ever see "key saved ✓" or "not set," never the key itself.
-3. **A "Test connection" step** — one cheap, minimal API call to validate a pasted key immediately (catches typos, wrong key type, expired keys) rather than a confusing failure three screens later.
-4. **Clear cost messaging in the UI** — when a user supplies their own key, *they* are billed directly by Anthropic/OpenAI, not the app owner. A plain one-line note in Settings avoids a surprise bill.
+1. **Two more providers in `aiService.js`**, same shape as Ollama: `@anthropic-ai/sdk` for Claude, `openai` for ChatGPT. Each is one function; the five AI controllers didn't change.
+2. **Encryption at rest.** `utils/crypto.js`: AES-256-GCM via Node's built-in `crypto` (no new dependency), keyed by a server-side `ENCRYPTION_KEY`. The encrypted field is stripped from every client-facing response, same as `password` — the client only ever sees `hasAnthropicKey`/`hasOpenaiKey` booleans, never the key itself.
+3. **A "Test connection" step.** `POST /api/ai/test-connection` makes one cheap, minimal call per provider (works against a just-typed, not-yet-saved key too).
+4. **Clear cost messaging in the UI.** "Uses your own API key — you'll be billed directly by Anthropic/OpenAI."
 
-**Open questions:**
-- Encrypt in the `User` document itself, or a separate collection scoped tighter?
-- Should the key ever be allowed to round-trip back to the client (e.g. to let a user re-paste/verify), or strictly write-only after the initial save?
-- Same global-switch-per-user pattern as Phase 9's `aiProvider`, or does BYOK need its own enum value alongside `gemini`/`ollama`?
-- **Still true as noted above:** expect `suggest-habits`' JSON-strictness to be the roughest edge with a local model — the `DEFAULT_SUGGESTIONS` fallback already covers this, so a bad response degrades rather than breaks.
+**Decisions made on the open questions:**
+- **Same `User` document**, not a separate collection — simplest, and this is a personal app, not a multi-tenant system needing that isolation.
+- **Strictly write-only.** The key never round-trips back to the client in any form; re-verifying means re-pasting (or using Test connection, which accepts a freshly typed key without requiring a save first).
+- **Same `aiProvider` enum**, extended to `gemini`/`ollama`/`claude`/`openai` — one unified switch rather than a separate BYOK flag, so the Settings dropdown and the backend's `resolveProviderAndModel()` stay one simple mechanism.
+
+**Verified live:** 19 backend checks (key never leaks in any response at any layer, the DB value is genuinely ciphertext — confirmed by direct query, not plaintext, switching providers doesn't wipe a saved key, and a deliberately invalid key was sent to the **real Anthropic API** and correctly rejected with a clean `401`, proving the full pipeline reaches the real service) and 17 Playwright UI checks. One real bug was found and fixed during UI testing: the typed key stayed in React state after a successful save, so reopening Settings silently showed the stale typed value instead of the "key saved" placeholder — fixed, and a stronger assertion (checking the actual input value, not just its placeholder attribute) was added to the test to catch the same mistake if it recurs.
+
+**What's still unverified:** a full successful generation through Claude or ChatGPT — no real API keys for either were available this session. Everything up to that boundary (encryption, storage, routing, validation, and the real API correctly rejecting bad credentials) was confirmed live; only an actual successful response was not.
+
+---
+
+#### Phase 10 extension (same day, 2026-10-05): Gemini joins BYOK, plus a built-in rate limiter
+
+Two follow-ups requested after the Claude/ChatGPT work landed:
+
+**1. Gemini BYOK.** Gemini is different from Claude/ChatGPT in one real way: it already has a server-wide fallback key (`GEMINI_API_KEY`), so a personal key is *optional* for it, not required. `chatCompletionGemini()` and the `gemini` branch of `testConnection()` now accept an `apiKey` override — when given, a fresh client is built for that call; when absent, the existing server-wide singleton client is used exactly as before. `geminiApiKeyEncrypted` / `hasGeminiKey` follow the identical pattern as Claude/OpenAI.
+
+**2. A built-in AI request limiter**, on by default at 5/minute (Gemini's well-known free-tier number), to protect a non-technical user from two different failure modes: hitting a free-tier provider's own rate limit and seeing a confusing error, or — on a paid plan — an accidental cost spike from a bug or repeated clicking. Built as `middleware/aiRateLimit.js` (an in-process, rolling-window counter in `utils/rateLimiter.js`) applied only to the five content-generating routes, not the passive `/ollama-models` check or the deliberate `/test-connection` action.
+
+**The one real design subtlety, caught before shipping:** whose quota is being protected? A user's *own* key (BYOK) is genuinely their own resource — limit it per-user, and let them customize or disable it via an "Advanced" Settings section (on by default; disabling requires a freshly-checked "I understand the risk" box every time, not just once). But Gemini's *shared server key* is one real quota shared by everyone using it — if each user got their own independently-tracked 5/min "protection" while actually hitting the same underlying key, N users could collectively blow straight through the one real 5/min limit while every individual dashboard looked "protected." **Fix:** the shared key is always limited globally, always at the server's own default, and a user's personal enabled/custom-number preference has **no effect** on it — only on their own key, if they have one. This was caught by the test suite itself (a "custom limit" test gave a confusing result because it was unknowingly sharing a bucket with an earlier test), traced to its root cause, and fixed rather than worked around.
+
+**UI:** a "Get a key" link, test-connection, and the Advanced rate-limit section all live in the same Settings modal as the rest of BYOK, gated behind a disclosure so the common case stays uncluttered.
+
+**A second real gap found and fixed:** two of the five AI-calling frontend components (`StreakRecoveryCard`, `HabitSuggestionModal`) had **no error handling at all** — a 429 (or any failure) would leave the user on an infinite loading spinner with zero explanation, directly undermining the "well-informed user" goal this feature exists for. The other three showed only a generic fallback message, discarding the actual backend explanation. All five now surface the real `err.response?.data?.message`.
+
+**Verified live:** 25 backend checks (Gemini BYOK round-trip through the real Anthropic-style flow with a fake key rejected by the real Gemini API; the default 5/min limit triggering a clean 429 on the 6th rapid call with no habits needed — the limiter runs before any habit lookup, so it's free to test; Ollama confirmed exempt; a BYOK user's custom number and disable toggle both working; and, the important one, two independent confirmations — one in the full suite, one in an isolated clean-slate re-run — that a shared-key user's personal preferences are correctly ignored in favor of the server default) plus 11 Playwright UI checks against the real running app, including triggering one genuine 429 through the actual "Generate weekly report" button and confirming the real backend message appeared in the UI instead of the old generic fallback.
+
+**What's still unverified:** same as above — no real Gemini/Claude/OpenAI paid-tier key was available to confirm a successful generation under BYOK; everything up to that boundary was.
+
+---
+
+#### Phase 10 extension #2 (same day, 2026-10-05): shared key off by default; demo account goes fully static
+
+Immediately after the rate limiter shipped, a sharper question came up: a rolling-window request limiter controls *frequency*, not *spend*. It's real protection on a true free-tier key with no billing attached (Gemini just rejects requests past the free quota — $0 is guaranteed by the absence of a payment method, not by any app code), but it was never a hard spending ceiling, and the shared key was reachable by any anonymous new registration with no owner approval step at all. That doesn't match "I don't intend to incur any spending costs at the moment, and nothing should happen without my say-so."
+
+It also surfaced the real reason a shared key was there in the first place: letting a brand-new visitor see the app work before committing to their own key. Once that's named explicitly, a live call isn't actually necessary to achieve it — a realistic, pre-populated preview does the same job with zero ongoing cost or complexity.
+
+**What shipped:**
+
+1. **`GEMINI_SHARED_KEY_ENABLED`, defaulting to `false`.** Gated at the single choke point both `chatCompletion()` and `testConnection()` already shared (`getClient()` in `aiService.js`) — one change correctly covers every caller. While off, anyone without their own key gets a clear "add your own key" message; no live request against the shared key happens, full stop, until the owner explicitly flips this to `"true"`. This is a frequency/reachability gate, not a spend guarantee by itself — the actual guarantee remains not attaching a billing account to the shared key's Google account, which is outside app code entirely and the real reason $0 is structurally true.
+2. **The seeded demo account (`demo@habittracker.local`) now returns static sample content for all five AI features — zero live calls, ever**, for that account specifically. `utils/demoAIContent.js` reuses the exact sample text from the frontend's old mock API (deleted in the Phase 7 cutover), which — not by coincidence, since the demo seed data in `scripts/seed.js` was itself modeled on that same original mock — already references the demo persona's real habit names ("Drink 2L of water," "Morning run," "Journal"), so it reads as genuinely consistent rather than generic. The demo account is also exempt from the rate limiter (nothing to protect — it never reaches a provider) and from input validation on these endpoints (always succeeds, so a visitor can't "break" the demo).
+3. **BYOK is completely unaffected** — a user with their own key still reaches the real provider exactly as before; this only changes what happens with *no* personal key.
+
+**Verified live:** logged into the real, already-seeded demo account and confirmed all five AI features return the correct static content, zero `AIInsight` documents are created (purely static, no persistence), and the account is immune to the rate limiter across 8 rapid calls. Separately confirmed, with a fresh real registration, that `weekly-report` now returns the graceful "shared key isn't available" placeholder instead of a live call, that `test-connection` reports the same, and that supplying a personal key still reaches the real Gemini API regardless of the switch (got a real auth rejection, not the "shared key off" message) — confirming BYOK and the shared-key gate are correctly independent of each other.
+
+#### Phase 10 extension #3 (2026-10-06): per-user Ollama connection settings, and fixing a cross-provider model collision
+
+Phase 9's Ollama settings assumed a new user already had Ollama set up and reachable at the server's own `OLLAMA_BASE_URL` — there was no way for a user without server-level access to point the app at their own Ollama install at all. The fix needed to mirror the BYOK pattern already built for Claude/OpenAI/Gemini: a per-user setting, editable in the app, testable before saving.
+
+While building it, a real pre-existing bug surfaced: `aiModel` was a **single field shared across all four providers**. Since a Claude model name means nothing to Ollama (and vice versa), switching provider in Settings — even just to look at something, then switching back — could silently overwrite a different provider's remembered model with whatever the UI happened to be showing, because `save()` always sent the one shared field unconditionally. This was fixed as part of this change rather than left in place, since the new Ollama field would have inherited the same flaw otherwise.
+
+**What shipped:**
+
+1. **Per-provider model fields**, replacing the single `aiModel`: `geminiModel`, `ollamaModel`, `anthropicModel`, `openaiModel` on the `User` model, each independently validated/saved/returned — matching how the API key fields were already split per provider. Switching `aiProvider` back and forth in Settings no longer touches any other provider's saved model.
+2. **`ollamaBaseUrl`** on the `User` model — where this user's own Ollama lives. Empty means "use the server's `OLLAMA_BASE_URL`". Not a secret (Ollama has no auth), so unlike the API keys it's always overwritten with whatever's sent, no "omit to leave untouched" dance needed.
+3. **`aiService.js`**: `chatCompletionOllama` and the `chatCompletion()` dispatcher now accept/forward a `baseUrl` override, same shape as the existing `apiKey` override for the other providers. `fetchOllamaModels(baseUrl)` already supported a custom URL (used by `testConnection`'s ollama branch) — just needed wiring up to a saved per-user value.
+4. **`GET /api/ai/ollama-models?baseUrl=...`** and **`POST /api/ai/test-connection`** both now accept an optional `baseUrl`, testing an unsaved value directly (so a user can verify their URL before saving it) and falling back to the user's saved `ollamaBaseUrl`, then the server default.
+5. **Settings UI**: a text input for the Ollama server URL (placeholder `http://localhost:11434 — leave blank for the app's default`), an "install Ollama" link with a `ollama pull <model>` hint for brand-new users, a status line that names the actual address being tested, and a short caveat that the address is resolved **by the backend server**, not the user's browser — `localhost` only works when Ollama and the backend share a machine.
+
+**Verified:** 25 backend checks against a temp server (fresh-user field defaults, independent per-provider persistence across provider switches, `ollamaBaseUrl` format validation, empty-string-clears-to-default, both the query-param and saved-value paths on `/ollama-models`, both the body-param and saved-value paths on `/test-connection`) — all passed, and the two real accounts' pre-existing `aiModel` values (both already `""`) confirmed safe to migrate away from before making the change. 7 real-browser Playwright checks against the running app (base URL input renders, install link renders, the status line reflects a just-typed address after refresh, both provider and base URL persist across a full page reload, and — the specific regression this was meant to fix — switching to Claude and back to Ollama leaves the saved base URL untouched).
 
 ### Push notifications
 - **Added:** 2026-09-20
