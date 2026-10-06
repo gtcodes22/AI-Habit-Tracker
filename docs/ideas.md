@@ -34,6 +34,28 @@ A running backlog of ideas that are **not** part of the current scope. Nothing h
 
 ## Ideas
 
+### Client-side Ollama calls, multi-platform distribution, and a multi-app ecosystem
+- **Added:** 2026-10-06
+- **Status:** Idea — design discussion only, nothing built.
+
+**1. Client-side Ollama, keeping everything else unchanged.** Today `chatCompletionOllama` runs server-side, so `OLLAMA_BASE_URL` resolves relative to the *server's* machine — fine for local dev, broken for a hosted deployment (the server can't reach a user's laptop). Fix: call Ollama **directly from the browser** instead of through the backend. This works because browsers treat `localhost`/`127.0.0.1` as a secure context exempt from mixed-content blocking (an HTTPS page can `fetch("http://localhost:11434/...")` without issue) — the real requirement is CORS: the user's Ollama needs `OLLAMA_ORIGINS` set to allow the deployed frontend's origin.
+  - Keep `geminiApiKey`/`anthropicApiKey`/`openaiApiKey` exactly as they are now — server-side, encrypted, synced across devices. A cloud API key is account-scoped; a user expects it to just be there on any device they log in from, which is exactly what the current design already gets right.
+  - Move `ollamaBaseUrl`/`ollamaModel` to **localStorage, not the `User` model.** These are inherently device-specific (the whole point is "my Ollama on *this* machine"), so there's nothing to lose by not syncing them, and it sidesteps needing a profile update round-trip just to test a local URL.
+  - To keep prompts correct without duplicating the habit-data aggregation logic client-side, add a lightweight `POST /ai/build-prompt` endpoint that returns `{ systemPrompt, userMessage }` using the existing server-side `groupDatesByHabit`/date-range logic. Frontend calls that first, then either `chatCompletion` (cloud providers, as now) or a direct Ollama fetch (local) — same UI, one branch on provider. Ollama results would need an extra client → `POST /ai/record-insight` call to preserve the current `AIInsight.create()` persistence, since the backend is no longer the one making the call.
+  - Ollama's existing rate-limiter exemption is unaffected either way.
+
+**2. Multi-platform (desktop + mobile, alongside the existing web app).** Keep the Express API as the single source of truth for every client — no client-specific backend logic.
+  - **Desktop:** Electron (or Tauri, lighter-weight) wrapping the existing React app with little to no change. This is also what makes "client-side Ollama" moot on desktop specifically — the embedded app *is* the user's machine, so `localhost` always resolves correctly even without the CORS dance.
+  - **Mobile (iOS/Android):** React Native/Expo. The UI layer gets rebuilt (RN isn't DOM-based), but a monorepo with a shared `api-client`/types package avoids re-deriving auth/request logic per platform. Local Ollama support realistically doesn't extend to mobile — a phone's "localhost" isn't the user's PC — so mobile would be cloud-providers-only.
+  - Sequencing: don't start mobile until the web app is stable: it's the most expensive platform to add and the UI can't be reused directly.
+
+**3. The grander vision — a multi-app personal ecosystem.** Longer-term goal: a consolidated dashboard combining this habit tracker with other planned apps (an AI recipe generator; eventually a combined habit+fitness+nutrition tracker; a project/kanban tracker; self-learning notes; an AI whiteboard/diagramming tool) — so working on a task in one place can automatically update tracking in another, without switching apps.
+  - **Too early to build now**, but cheap to prepare for: give every future mini-app the **same auth/account system** and a **shared `activity`/`event` collection** from day one (e.g. `{ userId, app, type, payload, timestamp }`), even while each app stays its own repo/deploy. That's what makes later cross-app automation possible without a rewrite, at near-zero cost today.
+  - **Near-term, concrete step:** a simple landing/launcher page — one login, links out to each deployed mini-app, shared nav — rather than real integration. Cheap "ecosystem v0" that doesn't require committing to which apps survive long-term.
+  - Revisit real integration once 2–3 mini-apps actually exist and it's clear which ones are worth combining.
+
+---
+
 ### Support multiple AI providers (Claude, local models via Ollama)
 - **Added:** 2026-09-20
 - **Status:** All four providers **shipped**, and all three cloud providers now support bring-your-own-key: Gemini (original + optional BYOK), Ollama (Phase 8: provider plumbing; Phase 9: per-user settings + live model picker; Phase 10 extension #3: per-user connection URL, independent per-provider model fields), Claude/ChatGPT (Phase 10: encrypted bring-your-own-key, required since neither has a server-wide key). A built-in AI request rate limiter (5/min default, on by default) also shipped as part of Phase 10. Built and tested 2026-10-05 through 2026-10-06, not yet committed. See the BYOK write-up below for what's still unverified.
